@@ -1,3 +1,5 @@
+mod entity;
+
 use axum::{
     Json, Router,
     extract::State,
@@ -7,6 +9,7 @@ use axum::{
 
 use sea_orm::{Database, DatabaseConnection};
 use serde::{Deserialize, Serialize};
+use tokio::signal::ctrl_c;
 
 // Application state
 #[derive(Clone)]
@@ -14,22 +17,37 @@ struct AppState {
     db: DatabaseConnection,
 }
 
+async fn shutdown_signal() {
+    ctrl_c().await.expect("Failed to listen for Ctrl-C");
+}
+
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
-    let connection_str = dotenvy::var("CONNECTION_STRING")?;
+    if dotenvy::from_filename(".env.local").is_ok() {
+        tracing::info!("Loaded .env.local");
+    } else if dotenvy::dotenv().is_ok() {
+        tracing::info!("Loaded .env");
+    } else {
+        tracing::info!("No .env file found, using environment variables");
+    }
+
+    let connection_str = dotenvy::var("DATABASE_URL")?;
 
     let db = Database::connect(connection_str).await?;
+    db.get_schema_registry("nexus-api::entity::*")
+        .sync(&db)
+        .await?;
 
     let state = AppState { db };
 
-    let app = Router::new()
-        .route("/", get(root))
-        .route("/users", post(create_user))
-        .with_state(state);
+    let app = Router::new().route("/", get(root)).with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
 }
@@ -44,29 +62,4 @@ async fn main() {
 
 async fn root() -> &'static str {
     "Hello, world!"
-}
-
-async fn create_user(
-    // parse request body as JSON into 'CreateUser' type
-    Json(payload): Json<CreateUser>,
-) -> (StatusCode, Json<User>) {
-    let user = User {
-        id: 67,
-        username: payload.username,
-    };
-
-    (StatusCode::CREATED, Json(user))
-}
-
-// input to 'create_user' handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-// output to 'create_user' handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
 }
