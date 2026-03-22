@@ -1,4 +1,4 @@
-use sea_orm::{entity::prelude::*, sqlx::types::uuid};
+use sea_orm::entity::prelude::*;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -10,7 +10,7 @@ pub struct Model {
     pub is_pinned: bool,
     pub title: String,
     #[sea_orm(nullable)]
-    pub media_key: String,
+    pub media_key: Option<String>,
     #[sea_orm(column_type = "Text")]
     pub body: String,
     pub user_id: uuid::Uuid,

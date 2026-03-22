@@ -1,4 +1,4 @@
-use sea_orm::{entity::prelude::*, sqlx::types::uuid};
+use sea_orm::entity::prelude::*;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
