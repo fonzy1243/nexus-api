@@ -1,21 +1,15 @@
+mod auth;
 mod entity;
+mod error;
+mod handlers;
+mod state;
 
-use axum::{
-    Json, Router,
-    extract::State,
-    http::StatusCode,
-    routing::{get, post},
-};
+use state::AppState;
 
-use sea_orm::{Database, DatabaseConnection};
-use serde::{Deserialize, Serialize};
+use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
+
+use sea_orm::Database;
 use tokio::signal::ctrl_c;
-
-// Application state
-#[derive(Clone)]
-struct AppState {
-    db: DatabaseConnection,
-}
 
 async fn shutdown_signal() {
     ctrl_c().await.expect("Failed to listen for Ctrl-C");
@@ -33,15 +27,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let connection_str = dotenvy::var("DATABASE_URL")?;
+    let jwt_secret = dotenvy::var("JWT_SECRET")?;
 
     let db = Database::connect(connection_str).await?;
     db.get_schema_registry("nexus-api::entity::*")
         .sync(&db)
         .await?;
 
-    let state = AppState { db };
+    let state = AppState { db, jwt_secret };
 
-    let app = Router::new().route("/", get(root)).with_state(state);
+    let app = Router::new()
+        .route("/", get(root))
+        .nest("/api/users", handlers::users::routes::router())
+        .with_state(state);
+
+    let app = app.fallback(handler_404);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 
@@ -62,4 +62,8 @@ async fn main() {
 
 async fn root() -> &'static str {
     "Hello, world!"
+}
+
+async fn handler_404() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "Nothing to see here.")
 }
