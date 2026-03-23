@@ -17,6 +17,8 @@ tracing-subscriber = "0.3.23"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 argon2 = "0.5.3"
 chrono = "0.4.44"
+axum-extra = { version = "0.12.5", features = ["typed-header"] }
+base64 = "0.22.1"
 
 [dependencies.sea-orm]
 features = [
