@@ -1,6 +1,7 @@
 mod auth;
 mod entity;
 mod error;
+mod extractors;
 mod handlers;
 mod state;
 

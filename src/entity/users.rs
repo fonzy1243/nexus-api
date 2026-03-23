@@ -12,6 +12,8 @@ pub struct Model {
     pub password_hash: String,
     pub role: UserRole,
     pub created_at: ChronoDateTime,
+    #[sea_orm(default_value = 0)]
+    pub token_version: i32,
     #[sea_orm(has_many)]
     pub posts: HasMany<super::posts::Entity>,
     #[sea_orm(has_many)]
