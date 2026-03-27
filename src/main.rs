@@ -41,6 +41,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(root))
         .nest("/users", handlers::users::routes::router())
+        .nest("/posts", handlers::posts::routes::router())
+        .nest("/communities", handlers::communities::routes::router())
         .nest("/logs", handlers::logs::routes::router())
         .with_state(state);
 
