@@ -21,15 +21,17 @@ use crate::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        // public
         .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/refresh", post(refresh))
+        .route("/auth/reset-password", post(reset_password))
+        .route("/auth/security-question", post(get_security_question))
+        // protected - uses AuthUser
         .route("/auth/logout", post(logout))
         .route("/me/username", patch(change_username))
         .route("/me/password", patch(change_password))
         .route("/me/security-question", post(set_security_question))
-        .route("/auth/security-question", post(get_security_question))
-        .route("/auth/reset-password", post(reset_password))
 }
 
 async fn register(
@@ -51,7 +53,7 @@ async fn login(
         .http_only(true)
         .secure(true)
         .same_site(SameSite::None)
-        .path("/api/users/auth")
+        .path("/users/auth")
         .max_age(time::Duration::days(30))
         .build();
 
@@ -76,7 +78,7 @@ async fn refresh(State(state): State<AppState>, jar: CookieJar) -> Result<impl I
         .http_only(true)
         .secure(true)
         .same_site(SameSite::None)
-        .path("/api/users/auth")
+        .path("/users/auth")
         .max_age(time::Duration::days(30))
         .build();
 
@@ -100,7 +102,7 @@ async fn logout(
     Mutation::logout(&state, auth.id, RefreshInput { refresh_token }).await?;
 
     let cookie = Cookie::build(("refresh_token", ""))
-        .path("/api/users/auth")
+        .path("/users/auth")
         .max_age(time::Duration::seconds(0))
         .build();
 
@@ -112,7 +114,7 @@ async fn change_username(
     auth: AuthUser,
     Json(input): Json<ChangeUsernameInput>,
 ) -> Result<Json<String>> {
-    Mutation::change_username(&state, auth.id, input).await?;
+    Mutation::change_username(&state, &auth, input).await?;
     Ok(Json("Username updated".into()))
 }
 
