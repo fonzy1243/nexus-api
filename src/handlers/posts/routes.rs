@@ -11,7 +11,7 @@ use crate::{error::Result, state::AppState};
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_all_posts))
-        .route("/:id/comments", get(get_post_comments))
+        .route("/{id}/comments", get(get_post_comments))
 }
 
 async fn get_all_posts(

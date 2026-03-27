@@ -15,7 +15,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_all_communities))
-        .route("/:id/posts", get(get_community_posts))
+        .route("/{id}/posts", get(get_community_posts))
 }
 
 async fn get_all_communities(
