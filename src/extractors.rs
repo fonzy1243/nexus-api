@@ -6,9 +6,20 @@ use axum_extra::{
 use sea_orm::EntityTrait;
 use uuid::Uuid;
 
-use crate::{auth::verify_token, entity::users, error::AppError, state::AppState};
+use crate::{
+    auth::verify_token,
+    entity::users::{self, UserRole},
+    error::AppError,
+    logger::{action, log, target},
+    state::AppState,
+};
 
 pub struct AuthUser {
+    pub id: Uuid,
+    pub role: UserRole,
+}
+
+pub struct AdminUser {
     pub id: Uuid,
 }
 
@@ -30,9 +41,28 @@ impl FromRequestParts<AppState> for AuthUser {
             .ok_or(AppError::Unauthorized)?;
 
         if user.token_version != claims.version {
+            let _ = log(state, user.id, action::ACCESS_DENIED, target::USER, user.id).await;
             return Err(AppError::Unauthorized);
         }
 
-        Ok(AuthUser { id: claims.sub })
+        Ok(AuthUser {
+            id: claims.sub,
+            role: user.role,
+        })
+    }
+}
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
+        let auth = AuthUser::from_request_parts(parts, state).await?;
+
+        if auth.role != UserRole::Admin {
+            let _ = log(state, auth.id, action::ACCESS_DENIED, target::USER, auth.id).await;
+            return Err(AppError::Unauthorized);
+        }
+
+        Ok(AdminUser { id: auth.id })
     }
 }
