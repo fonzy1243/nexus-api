@@ -3,6 +3,7 @@ mod entity;
 mod error;
 mod extractors;
 mod handlers;
+mod logger;
 mod state;
 
 use state::AppState;
@@ -39,7 +40,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(root))
-        .nest("/api/users", handlers::users::routes::router())
+        .nest("/users", handlers::users::routes::router())
+        .nest("/logs", handlers::logs::routes::router())
         .with_state(state);
 
     let app = app.fallback(handler_404);
