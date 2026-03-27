@@ -11,7 +11,7 @@ use serde_json::json;
 
 use super::mutation::{
     AuthResponse, ChangePasswordInput, ChangeUsernameInput, LoginInput, Mutation, RefreshInput,
-    RegisterInput,
+    RegisterInput, ResetPasswordInput, SetSecurityQuestionInput,
 };
 use crate::{
     error::{AppError, Result},
@@ -27,6 +27,9 @@ pub fn router() -> Router<AppState> {
         .route("/auth/logout", post(logout))
         .route("/me/username", patch(change_username))
         .route("/me/password", patch(change_password))
+        .route("/me/security-question", post(set_security_question))
+        .route("/auth/security-question", post(get_security_question))
+        .route("/auth/reset-password", post(reset_password))
 }
 
 async fn register(
@@ -113,6 +116,14 @@ async fn change_username(
     Ok(Json("Username updated".into()))
 }
 
+async fn reset_password(
+    State(state): State<AppState>,
+    Json(input): Json<ResetPasswordInput>,
+) -> Result<Json<String>> {
+    Mutation::reset_password(&state, input).await?;
+    Ok(Json("Password reset".into()))
+}
+
 async fn change_password(
     State(state): State<AppState>,
     auth: AuthUser,
@@ -120,4 +131,26 @@ async fn change_password(
 ) -> Result<Json<String>> {
     Mutation::change_password(&state, auth.id, input).await?;
     Ok(Json("Password updated".into()))
+}
+
+async fn get_security_question(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<String>> {
+    let email = body["email"]
+        .as_str()
+        .ok_or(AppError::BadRequest("Email required".into()))?
+        .to_string();
+
+    let question = Mutation::get_security_question(&state, email).await?;
+    Ok(Json(question))
+}
+
+async fn set_security_question(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(input): Json<SetSecurityQuestionInput>,
+) -> Result<Json<String>> {
+    Mutation::set_security_question(&state, auth.id, input).await?;
+    Ok(Json("Security question set".into()))
 }

@@ -1,8 +1,9 @@
 use crate::{
     auth::{create_refresh_token, create_token, verify_refresh_token},
     entity::{
+        password_history::{self, Entity as PasswordHistory},
         refresh_tokens::{self, Entity as RefreshTokens},
-        users::{self, Entity as Users},
+        users::{self, Entity as Users, SecurityQuestion},
     },
     error::{AppError, Result},
     state::AppState,
@@ -12,7 +13,9 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -46,6 +49,21 @@ pub struct ChangePasswordInput {
     pub new_password: String,
 }
 
+#[derive(Deserialize)]
+pub struct SetSecurityQuestionInput {
+    pub question: SecurityQuestion,
+    pub answer: String,
+    pub current_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordInput {
+    pub email: String,
+    pub security_answer: String,
+    pub new_password: String,
+    pub confirm_password: String,
+}
+
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub access_token: String,
@@ -56,8 +74,37 @@ pub struct AuthResponse {
 
 pub struct Mutation;
 
+fn validate_password(password: &str) -> Result<()> {
+    if password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "Password must be at least 8 characters".into(),
+        ));
+    }
+
+    if !password.chars().any(|c| c.is_uppercase()) {
+        return Err(AppError::BadRequest(
+            "Password must contain an uppercase letter".into(),
+        ));
+    }
+
+    if !password.chars().any(|c| c.is_numeric()) {
+        return Err(AppError::BadRequest(
+            "Password must contain a number".into(),
+        ));
+    }
+
+    if !password.chars().any(|c| !c.is_alphanumeric()) {
+        return Err(AppError::BadRequest(
+            "Password must contain a special character".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Mutation {
     pub async fn register(state: &AppState, input: RegisterInput) -> Result<AuthResponse> {
+        validate_password(&input.password)?;
+
         let existing = Users::find()
             .filter(users::Column::Email.eq(&input.email))
             .one(&state.db)
@@ -79,9 +126,15 @@ impl Mutation {
             username: Set(input.username.clone()),
             email: Set(input.email),
             password_hash: Set(hash),
+            security_question: Set(None),
+            security_answer_hash: Set(None),
             role: Set(users::UserRole::User),
             created_at: Set(chrono::Utc::now().naive_utc()),
             token_version: Set(0),
+            failed_login_attempts: Set(0),
+            last_login_at: Set(Option::Some(chrono::Utc::now())),
+            locked_until: Set(Option::None),
+            password_changed_at: Set(chrono::Utc::now()),
         };
 
         user.insert(&state.db).await?;
@@ -114,12 +167,36 @@ impl Mutation {
             .await?
             .ok_or(AppError::Unauthorized)?;
 
+        if let Some(locked_until) = user.locked_until {
+            if locked_until > Utc::now() {
+                return Err(AppError::BadRequest("Account temporarily locked".into()));
+            }
+        }
+
         let parsed_hash =
             PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
 
-        Argon2::default()
+        let mut active: users::ActiveModel = user.clone().into();
+
+        if Argon2::default()
             .verify_password(input.password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::Unauthorized)?;
+            .is_err()
+        {
+            let attempts = user.failed_login_attempts + 1;
+            active.failed_login_attempts = Set(attempts);
+
+            if attempts >= 5 {
+                active.locked_until = Set(Some(Utc::now() + chrono::TimeDelta::minutes(30)));
+            }
+
+            active.update(&state.db).await?;
+            return Err(AppError::Unauthorized);
+        }
+
+        active.failed_login_attempts = Set(0);
+        active.locked_until = Set(None);
+        active.last_login_at = Set(Some(Utc::now()));
+        active.update(&state.db).await?;
 
         let access_token = create_token(user.id, &state.jwt_secret, user.token_version)?;
         let (raw_refresh, hashed_refresh) = create_refresh_token()?;
@@ -235,11 +312,82 @@ impl Mutation {
         Ok(updated)
     }
 
+    pub async fn reset_password(state: &AppState, input: ResetPasswordInput) -> Result<()> {
+        if input.new_password != input.confirm_password {
+            return Err(AppError::BadRequest("Passwords do not match".into()));
+        }
+
+        validate_password(&input.new_password)?;
+
+        let user = Users::find()
+            .filter(users::Column::Email.eq(&input.email))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        let answer_hash = user
+            .security_answer_hash
+            .as_ref()
+            .ok_or(AppError::Unauthorized)?;
+
+        let parsed = PasswordHash::new(answer_hash).map_err(|_| AppError::Unauthorized)?;
+
+        let answer_normalized = input.security_answer.trim().to_lowercase();
+        Argon2::default()
+            .verify_password(answer_normalized.as_bytes(), &parsed)
+            .map_err(|_| AppError::Unauthorized)?;
+
+        let age = Utc::now() - user.password_changed_at;
+        if age < chrono::TimeDelta::days(1) {
+            return Err(AppError::BadRequest(
+                "Password was changed too recently".into(),
+            ));
+        }
+
+        let history = PasswordHistory::find()
+            .filter(password_history::Column::UserId.eq(user.id))
+            .order_by_desc(password_history::Column::CreatedAt)
+            .all(&state.db)
+            .await?;
+
+        for old in &history {
+            let parsed =
+                PasswordHash::new(&old.password_hash).map_err(|_| AppError::Unauthorized)?;
+            if Argon2::default()
+                .verify_password(input.new_password.as_bytes(), &parsed)
+                .is_ok()
+            {
+                return Err(AppError::BadRequest("Cannot reuse passwords".into()));
+            }
+        }
+
+        let salt = SaltString::generate(&mut OsRng);
+        let new_hash = Argon2::default()
+            .hash_password(input.new_password.as_bytes(), &salt)
+            .map_err(|_| AppError::BadRequest("Failed to hash password".into()))?
+            .to_string();
+
+        let mut active: users::ActiveModel = user.clone().into();
+        active.password_hash = Set(new_hash);
+        active.password_changed_at = Set(Utc::now());
+        active.token_version = Set(user.token_version + 1);
+        active.update(&state.db).await?;
+
+        RefreshTokens::delete_many()
+            .filter(refresh_tokens::Column::UserId.eq(user.id))
+            .exec(&state.db)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn change_password(
         state: &AppState,
         user_id: Uuid,
         input: ChangePasswordInput,
     ) -> Result<()> {
+        validate_password(&input.new_password)?;
+
         if input.new_password != input.confirm_password {
             return Err(AppError::BadRequest("Passwords do not match".into()));
         }
@@ -262,6 +410,30 @@ impl Mutation {
             .verify_password(input.current_password.as_bytes(), &parsed_hash)
             .map_err(|_| AppError::Unauthorized)?;
 
+        let age = Utc::now() - user.password_changed_at;
+        if age < chrono::TimeDelta::days(1) {
+            return Err(AppError::BadRequest(
+                "Password must be at least 1 day old before changing".to_string(),
+            ));
+        }
+
+        let history = PasswordHistory::find()
+            .filter(password_history::Column::UserId.eq(user_id))
+            .order_by_desc(password_history::Column::CreatedAt)
+            .all(&state.db)
+            .await?;
+
+        for old in &history {
+            let parsed =
+                PasswordHash::new(&old.password_hash).map_err(|_| AppError::Unauthorized)?;
+            if Argon2::default()
+                .verify_password(input.new_password.as_bytes(), &parsed)
+                .is_ok()
+            {
+                return Err(AppError::BadRequest("Cannot reuse passwords".into()));
+            }
+        }
+
         let salt = SaltString::generate(&mut OsRng);
         let new_hash = Argon2::default()
             .hash_password(input.new_password.as_bytes(), &salt)
@@ -279,6 +451,51 @@ impl Mutation {
             .filter(refresh_tokens::Column::UserId.eq(user_id))
             .exec(&state.db)
             .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_security_question(state: &AppState, email: String) -> Result<String> {
+        let user = Users::find()
+            .filter(users::Column::Email.eq(&email))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        Ok(user
+            .security_question
+            .ok_or(AppError::BadRequest("No security question set".into()))?
+            .as_text()
+            .to_string())
+    }
+
+    pub async fn set_security_question(
+        state: &AppState,
+        user_id: Uuid,
+        input: SetSecurityQuestionInput,
+    ) -> Result<()> {
+        let user = Users::find_by_id(user_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let parsed_hash =
+            PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
+        Argon2::default()
+            .verify_password(input.current_password.as_bytes(), &parsed_hash)
+            .map_err(|_| AppError::Unauthorized)?;
+
+        let answer_normalized = input.answer.trim().to_lowercase();
+        let salt = SaltString::generate(&mut OsRng);
+        let answer_hash = Argon2::default()
+            .hash_password(answer_normalized.as_bytes(), &salt)
+            .map_err(|_| AppError::BadRequest("Failed to hash answer".into()))?
+            .to_string();
+
+        let mut active: users::ActiveModel = user.into();
+        active.security_question = Set(Some(input.question));
+        active.security_answer_hash = Set(Some(answer_hash));
+        active.update(&state.db).await?;
 
         Ok(())
     }
