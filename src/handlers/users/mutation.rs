@@ -3,9 +3,11 @@ use crate::{
     entity::{
         password_history::{self, Entity as PasswordHistory},
         refresh_tokens::{self, Entity as RefreshTokens},
-        users::{self, Entity as Users, SecurityQuestion},
+        users::{self, Entity as Users, SecurityQuestion, UserRole},
     },
     error::{AppError, Result},
+    extractors::AuthUser,
+    logger::{action, log, target},
     state::AppState,
 };
 use argon2::{
@@ -13,9 +15,7 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 use chrono::{Duration, Utc};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -40,6 +40,7 @@ pub struct RefreshInput {
 #[derive(Deserialize)]
 pub struct ChangeUsernameInput {
     pub username: String,
+    pub target_user_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +71,7 @@ pub struct AuthResponse {
     pub refresh_token: String,
     pub user_id: Uuid,
     pub username: String,
+    pub last_login_at: Option<String>,
 }
 
 pub struct Mutation;
@@ -111,6 +113,14 @@ impl Mutation {
             .await?;
 
         if existing.is_some() {
+            let _ = log(
+                state,
+                Uuid::nil(),
+                action::VALIDATION_FAILED,
+                target::USER,
+                Uuid::nil(),
+            )
+            .await;
             return Err(AppError::BadRequest("Account already exists.".into()));
         }
 
@@ -121,7 +131,7 @@ impl Mutation {
             .to_string();
 
         let id = Uuid::new_v4();
-        let user = users::ActiveModel {
+        let active = users::ActiveModel {
             id: Set(id),
             username: Set(input.username.clone()),
             email: Set(input.email),
@@ -137,7 +147,7 @@ impl Mutation {
             password_changed_at: Set(chrono::Utc::now()),
         };
 
-        user.insert(&state.db).await?;
+        active.insert(&state.db).await?;
 
         let access_token = create_token(id, &state.jwt_secret, 0)?;
         let (raw_refresh, hashed_refresh) = create_refresh_token()?;
@@ -152,11 +162,14 @@ impl Mutation {
         .insert(&state.db)
         .await?;
 
+        let _ = log(state, id, action::REGISTER, target::USER, id).await;
+
         Ok(AuthResponse {
             access_token,
             refresh_token: raw_refresh,
             user_id: id,
             username: input.username,
+            last_login_at: None,
         })
     }
 
@@ -169,9 +182,12 @@ impl Mutation {
 
         if let Some(locked_until) = user.locked_until {
             if locked_until > Utc::now() {
+                let _ = log(state, user.id, action::LOGIN_FAILED, target::USER, user.id).await;
                 return Err(AppError::BadRequest("Account temporarily locked".into()));
             }
         }
+
+        let previous_login = user.last_login_at.map(|t| t.to_string());
 
         let parsed_hash =
             PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
@@ -187,9 +203,18 @@ impl Mutation {
 
             if attempts >= 5 {
                 active.locked_until = Set(Some(Utc::now() + chrono::TimeDelta::minutes(30)));
+                let _ = log(
+                    state,
+                    user.id,
+                    action::ACCOUNT_LOCKED,
+                    target::USER,
+                    user.id,
+                )
+                .await;
             }
 
             active.update(&state.db).await?;
+            let _ = log(state, user.id, action::LOGIN_FAILED, target::USER, user.id).await;
             return Err(AppError::Unauthorized);
         }
 
@@ -197,6 +222,8 @@ impl Mutation {
         active.locked_until = Set(None);
         active.last_login_at = Set(Some(Utc::now()));
         active.update(&state.db).await?;
+
+        let _ = log(state, user.id, action::LOGIN_SUCCESS, target::USER, user.id).await;
 
         let access_token = create_token(user.id, &state.jwt_secret, user.token_version)?;
         let (raw_refresh, hashed_refresh) = create_refresh_token()?;
@@ -216,6 +243,7 @@ impl Mutation {
             refresh_token: raw_refresh,
             user_id: user.id,
             username: user.username,
+            last_login_at: previous_login,
         })
     }
 
@@ -251,11 +279,20 @@ impl Mutation {
         .insert(&state.db)
         .await?;
 
+        let _ = log(
+            state,
+            user.id,
+            action::REFRESH,
+            target::SESSION,
+            token_row.id,
+        );
+
         Ok(AuthResponse {
             access_token,
             refresh_token: raw_refresh,
             user_id: user.id,
             username: user.username,
+            last_login_at: user.last_login_at.map(|t| t.to_string()),
         })
     }
 
@@ -268,9 +305,11 @@ impl Mutation {
 
         for token in tokens {
             if verify_refresh_token(&input.refresh_token, &token.token_hash).is_ok() {
+                let token_id = token.id;
                 RefreshTokens::delete_by_id(token.id)
                     .exec(&state.db)
                     .await?;
+                let _ = log(state, user_id, action::LOGOUT, target::SESSION, token_id);
                 break;
             }
         }
@@ -280,9 +319,18 @@ impl Mutation {
 
     pub async fn change_username(
         state: &AppState,
-        user_id: Uuid,
+        auth: &AuthUser,
         input: ChangeUsernameInput,
     ) -> Result<users::Model> {
+        let target_id = match input.target_user_id {
+            Some(id) if auth.role == UserRole::Admin => id,
+            Some(id) if id != auth.id => {
+                let _ = log(state, auth.id, action::ACCESS_DENIED, target::USER, id).await;
+                return Err(AppError::Unauthorized);
+            }
+            Some(id) => id,
+            None => auth.id,
+        };
         let taken = Users::find()
             .filter(users::Column::Username.eq(&input.username))
             .one(&state.db)
@@ -292,7 +340,7 @@ impl Mutation {
             return Err(AppError::BadRequest("Username taken".into()));
         }
 
-        let user = Users::find_by_id(user_id)
+        let user = Users::find_by_id(auth.id)
             .one(&state.db)
             .await?
             .ok_or(AppError::NotFound)?;
@@ -305,9 +353,18 @@ impl Mutation {
         let updated = active.update(&state.db).await?;
 
         RefreshTokens::delete_many()
-            .filter(refresh_tokens::Column::UserId.eq(user_id))
+            .filter(refresh_tokens::Column::UserId.eq(auth.id))
             .exec(&state.db)
             .await?;
+
+        let _ = log(
+            state,
+            auth.id,
+            action::USERNAME_CHANGE,
+            target::USER,
+            target_id,
+        )
+        .await;
 
         Ok(updated)
     }
@@ -378,6 +435,15 @@ impl Mutation {
             .exec(&state.db)
             .await?;
 
+        let _ = log(
+            state,
+            user.id,
+            action::PASSWORD_RESET,
+            target::USER,
+            user.id,
+        )
+        .await;
+
         Ok(())
     }
 
@@ -389,10 +455,26 @@ impl Mutation {
         validate_password(&input.new_password)?;
 
         if input.new_password != input.confirm_password {
+            let _ = log(
+                state,
+                user_id,
+                action::VALIDATION_FAILED,
+                target::USER,
+                user_id,
+            )
+            .await;
             return Err(AppError::BadRequest("Passwords do not match".into()));
         }
 
         if input.current_password == input.new_password {
+            let _ = log(
+                state,
+                user_id,
+                action::VALIDATION_FAILED,
+                target::USER,
+                user_id,
+            )
+            .await;
             return Err(AppError::BadRequest(
                 "New password must differ from current password".into(),
             ));
@@ -412,6 +494,14 @@ impl Mutation {
 
         let age = Utc::now() - user.password_changed_at;
         if age < chrono::TimeDelta::days(1) {
+            let _ = log(
+                state,
+                user_id,
+                action::VALIDATION_FAILED,
+                target::USER,
+                user_id,
+            )
+            .await;
             return Err(AppError::BadRequest(
                 "Password must be at least 1 day old before changing".to_string(),
             ));
@@ -430,6 +520,14 @@ impl Mutation {
                 .verify_password(input.new_password.as_bytes(), &parsed)
                 .is_ok()
             {
+                let _ = log(
+                    state,
+                    user_id,
+                    action::VALIDATION_FAILED,
+                    target::USER,
+                    user_id,
+                )
+                .await;
                 return Err(AppError::BadRequest("Cannot reuse passwords".into()));
             }
         }
@@ -442,7 +540,7 @@ impl Mutation {
 
         let old_token_ver = user.token_version;
 
-        let mut active: users::ActiveModel = user.into();
+        let mut active: users::ActiveModel = user.clone().into();
         active.password_hash = Set(new_hash);
         active.token_version = Set(old_token_ver + 1);
         active.update(&state.db).await?;
@@ -451,6 +549,15 @@ impl Mutation {
             .filter(refresh_tokens::Column::UserId.eq(user_id))
             .exec(&state.db)
             .await?;
+
+        let _ = log(
+            state,
+            user.id,
+            action::PASSWORD_CHANGE,
+            target::USER,
+            user.id,
+        )
+        .await;
 
         Ok(())
     }
