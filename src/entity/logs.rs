@@ -1,7 +1,8 @@
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Deserialize, Serialize)]
 #[sea_orm(table_name = "logs")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -12,7 +13,7 @@ pub struct Model {
     pub action: String,
     pub target_type: String,
     pub target_id: uuid::Uuid,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
