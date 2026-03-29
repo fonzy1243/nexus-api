@@ -20,8 +20,8 @@ pub struct Model {
     pub community_id: uuid::Uuid,
     #[sea_orm(belongs_to, from = "community_id", to = "id")]
     pub community: HasOne<super::communities::Entity>,
-    pub created_at: ChronoDateTime,
-    pub edited_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
+    pub edited_at: ChronoDateTimeUtc,
     #[sea_orm(has_many)]
     pub comments: HasMany<super::comments::Entity>,
     #[sea_orm(has_many)]
