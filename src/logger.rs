@@ -2,11 +2,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use uuid::Uuid;
 
-use crate::{
-    entity::logs,
-    error::Result,
-    state::{self, AppState},
-};
+use crate::{entity::logs, error::Result, state::AppState};
 
 pub mod action {
     pub const LOGIN_SUCCESS: &str = "login_success";
@@ -21,11 +17,17 @@ pub mod action {
     pub const VALIDATION_FAILED: &str = "validation_failed";
     pub const SECURITY_QUESTION_SET: &str = "security_question_set";
     pub const REFRESH: &str = "token_refresh";
+    pub const CREATE: &str = "create";
+    pub const UPDATE: &str = "update";
+    pub const DELETE: &str = "delete";
 }
 
 pub mod target {
     pub const USER: &str = "user";
     pub const SESSION: &str = "session";
+    pub const COMMUNITY: &str = "community";
+    pub const POST: &str = "post";
+    pub const COMMENT: &str = "comment";
 }
 
 pub async fn log(
