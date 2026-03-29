@@ -9,7 +9,7 @@ pub struct Model {
     pub id: uuid::Uuid,
     pub name: String,
     pub logo: String,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
     #[sea_orm(has_many)]
     pub posts: HasMany<super::posts::Entity>,
     #[sea_orm(has_many)]
