@@ -7,6 +7,7 @@ pub enum AppError {
     NotFound,
     Unauthorized,
     BadRequest(String),
+    Forbidden,
 }
 
 impl std::fmt::Display for AppError {
@@ -16,6 +17,7 @@ impl std::fmt::Display for AppError {
             AppError::NotFound => write!(f, "Not found"),
             AppError::Unauthorized => write!(f, "Unauthorized"),
             AppError::BadRequest(m) => write!(f, "Bad request: {m}"),
+            AppError::Forbidden => write!(f, "Access denied"),
         }
     }
 }
@@ -35,6 +37,7 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
         };
 
         (status, Json(json!({ "error": message }))).into_response()
