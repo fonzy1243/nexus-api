@@ -8,10 +8,17 @@ mod state;
 
 use state::AppState;
 
-use axum::{Router, http::StatusCode, response::IntoResponse, routing::get};
+use axum::{
+    Router,
+    http::{Method, StatusCode, header},
+    response::IntoResponse,
+    routing::get,
+};
 
+use http::HeaderValue;
 use sea_orm::Database;
 use tokio::signal::ctrl_c;
+use tower_http::cors::CorsLayer;
 
 async fn shutdown_signal() {
     ctrl_c().await.expect("Failed to listen for Ctrl-C");
@@ -30,6 +37,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let connection_str = dotenvy::var("DATABASE_URL")?;
     let jwt_secret = dotenvy::var("JWT_SECRET")?;
+    let frontend_url = dotenvy::var("FRONTEND_URL")?;
+
+    let cors = CorsLayer::new()
+        .allow_origin(frontend_url.parse::<HeaderValue>().unwrap())
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_credentials(true);
 
     let db = Database::connect(connection_str).await?;
     db.get_schema_registry("nexus-api::entity::*")
@@ -44,6 +58,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/posts", handlers::posts::routes::router())
         .nest("/communities", handlers::communities::routes::router())
         .nest("/logs", handlers::logs::routes::router())
+        .layer(cors)
         .with_state(state);
 
     let app = app.fallback(handler_404);
