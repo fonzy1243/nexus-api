@@ -9,10 +9,11 @@ use uuid::Uuid;
 
 use crate::{
     entity::{
-        comments, comments::Entity as Comments, posts, posts::Entity as Posts, users,
-        users::Entity as Users,
+        comments::{self, Entity as Comments},
+        posts::{self, Entity as Posts},
+        users::{self, Entity as Users},
     },
-    error::Result,
+    error::{AppError, Result},
     state::AppState,
 };
 
@@ -149,6 +150,15 @@ impl Query {
 
     pub async fn get_all_posts(state: &AppState, params: ListParams) -> Result<Vec<PostSummary>> {
         Self::fetch_posts(Posts::find(), state, params).await
+    }
+
+    pub async fn get_post_by_id(state: &AppState, post_id: Uuid) -> Result<PostSummary> {
+        Posts::find_by_id(post_id)
+            .find_also_related(Users)
+            .one(&state.db)
+            .await?
+            .and_then(|(p, u)| map_post(p, u))
+            .ok_or(AppError::NotFound)
     }
 
     pub async fn get_community_posts(
