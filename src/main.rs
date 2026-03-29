@@ -63,7 +63,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = app.fallback(handler_404);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
