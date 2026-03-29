@@ -24,7 +24,7 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_all_posts).post(create_post))
-        .route("{id}", patch(update_post).delete(delete_post))
+        .route("/{id}", patch(update_post).delete(delete_post))
         .route(
             "/{id}/comments",
             get(get_post_comments).post(create_comment),
