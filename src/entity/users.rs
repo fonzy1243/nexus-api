@@ -14,7 +14,7 @@ pub struct Model {
     pub security_question: Option<SecurityQuestion>,
     pub security_answer_hash: Option<String>,
     pub role: UserRole,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
     #[sea_orm(default_value = 0)]
     pub token_version: i32,
     pub failed_login_attempts: i32,
