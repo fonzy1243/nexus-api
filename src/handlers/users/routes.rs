@@ -14,8 +14,9 @@ use super::mutation::{
     AuthResponse, ChangePasswordInput, ChangeUsernameInput, LoginInput, Mutation, RefreshInput,
     RegisterInput, ResetPasswordInput, SetSecurityQuestionInput,
 };
-use super::query::{Query as UserQuery, UserSummary};
+use super::query::{Params, PostSummary, Query as UserQuery, UserSummary};
 use crate::{
+    entity::comments,
     error::{AppError, Result},
     extractors::AuthUser,
     state::AppState,
@@ -30,6 +31,8 @@ pub fn router() -> Router<AppState> {
         .route("/auth/reset-password", post(reset_password))
         .route("/auth/security-question", post(get_security_question))
         .route("/{id}", get(get_user_by_id))
+        .route("/{id}/posts", get(get_user_posts))
+        .route("/{id}/comments", get(get_user_comments))
         // protected - uses AuthUser
         .route("/auth/logout", post(logout))
         .route("/me/username", patch(change_username))
@@ -166,4 +169,22 @@ async fn get_user_by_id(
 ) -> Result<Json<UserSummary>> {
     let user = UserQuery::find_user_by_id(&state, user_id).await?;
     Ok(Json(user))
+}
+
+async fn get_user_posts(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<Params>,
+) -> Result<Json<Vec<PostSummary>>> {
+    let posts = UserQuery::get_user_posts(&state, id, params).await?;
+    Ok(Json(posts))
+}
+
+async fn get_user_comments(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(params): Query<Params>,
+) -> Result<Json<Vec<comments::Model>>> {
+    let comments = UserQuery::get_user_comments(&state, id, params).await?;
+    Ok(Json(comments))
 }

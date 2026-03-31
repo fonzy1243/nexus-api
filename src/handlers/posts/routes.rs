@@ -24,7 +24,10 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(get_all_posts).post(create_post))
-        .route("/{id}", patch(update_post).delete(delete_post))
+        .route(
+            "/{id}",
+            get(get_post_by_id).patch(update_post).delete(delete_post),
+        )
         .route(
             "/{id}/comments",
             get(get_post_comments).post(create_comment),
@@ -40,6 +43,13 @@ async fn get_all_posts(
     Query(params): Query<ListParams>,
 ) -> Result<Json<Vec<PostSummary>>> {
     Ok(Json(PostQuery::get_all_posts(&state, params).await?))
+}
+
+async fn get_post_by_id(
+    State(state): State<AppState>,
+    Path(post_id): Path<Uuid>,
+) -> Result<Json<PostSummary>> {
+    Ok(Json(PostQuery::get_post_by_id(&state, post_id).await?))
 }
 
 async fn create_post(
