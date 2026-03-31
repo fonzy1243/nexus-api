@@ -139,7 +139,7 @@ impl Mutation {
             security_question: Set(None),
             security_answer_hash: Set(None),
             role: Set(users::UserRole::User),
-            created_at: Set(chrono::Utc::now().naive_utc()),
+            created_at: Set(chrono::Utc::now()),
             token_version: Set(0),
             failed_login_attempts: Set(0),
             last_login_at: Set(Option::Some(chrono::Utc::now())),

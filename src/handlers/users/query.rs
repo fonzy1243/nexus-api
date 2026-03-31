@@ -28,15 +28,28 @@ pub struct PostSummary {
     pub is_pinned: bool,
 }
 
+#[derive(Serialize)]
+pub struct UserSummary {
+    pub id: Uuid,
+    pub username: String,
+    pub created_at: String,
+}
+
 pub struct Query;
 
 impl Query {
-    pub async fn find_user_by_id(state: &AppState, id: Uuid) -> Result<users::Model> {
-        Users::find_by_id(id)
+    pub async fn find_user_by_id(state: &AppState, id: Uuid) -> Result<UserSummary> {
+        let user = Users::find_by_id(id)
             .one(&state.db)
             .await
             .map_err(AppError::Database)?
-            .ok_or(AppError::NotFound)
+            .ok_or(AppError::NotFound)?;
+
+        Ok(UserSummary {
+            id: user.id,
+            username: user.username,
+            created_at: user.created_at.to_string(),
+        })
     }
 
     pub async fn get_user_posts(

@@ -8,11 +8,13 @@ use axum::{
 use axum_extra::extract::cookie::{self, Cookie, CookieJar, SameSite};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use uuid::Uuid;
 
 use super::mutation::{
     AuthResponse, ChangePasswordInput, ChangeUsernameInput, LoginInput, Mutation, RefreshInput,
     RegisterInput, ResetPasswordInput, SetSecurityQuestionInput,
 };
+use super::query::{Query as UserQuery, UserSummary};
 use crate::{
     error::{AppError, Result},
     extractors::AuthUser,
@@ -27,6 +29,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/refresh", post(refresh))
         .route("/auth/reset-password", post(reset_password))
         .route("/auth/security-question", post(get_security_question))
+        .route("/{id}", get(get_user_by_id))
         // protected - uses AuthUser
         .route("/auth/logout", post(logout))
         .route("/me/username", patch(change_username))
@@ -155,4 +158,12 @@ async fn set_security_question(
 ) -> Result<Json<String>> {
     Mutation::set_security_question(&state, auth.id, input).await?;
     Ok(Json("Security question set".into()))
+}
+
+async fn get_user_by_id(
+    State(state): State<AppState>,
+    Path(user_id): Path<Uuid>,
+) -> Result<Json<UserSummary>> {
+    let user = UserQuery::find_user_by_id(&state, user_id).await?;
+    Ok(Json(user))
 }
