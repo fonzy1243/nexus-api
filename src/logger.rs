@@ -28,6 +28,7 @@ pub mod target {
     pub const COMMUNITY: &str = "community";
     pub const POST: &str = "post";
     pub const COMMENT: &str = "comment";
+    pub const SUBSCRIPTION: &str = "subscription";
 }
 
 pub async fn log(
