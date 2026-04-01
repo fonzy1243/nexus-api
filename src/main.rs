@@ -16,9 +16,14 @@ use axum::{
 };
 
 use http::HeaderValue;
+use regex::Regex;
 use sea_orm::Database;
+use std::sync::LazyLock;
 use tokio::signal::ctrl_c;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
+
+static NETLIFY_PREVIEW: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https://.*--nexus-lol\.netlify\.app$").unwrap());
 
 async fn shutdown_signal() {
     ctrl_c().await.expect("Failed to listen for Ctrl-C");
@@ -38,9 +43,19 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let connection_str = dotenvy::var("DATABASE_URL")?;
     let jwt_secret = dotenvy::var("JWT_SECRET")?;
     let frontend_url = dotenvy::var("FRONTEND_URL")?;
+    let dev_url = dotenvy::var("DEV_URL").unwrap_or_default();
 
     let cors = CorsLayer::new()
-        .allow_origin(frontend_url.parse::<HeaderValue>().unwrap())
+        .allow_origin(AllowOrigin::predicate(move |origin, _| {
+            let origin = match origin.to_str() {
+                Ok(s) => s,
+                Err(_) => return false,
+            };
+
+            origin == frontend_url
+                || (!dev_url.is_empty() && origin == dev_url)
+                || NETLIFY_PREVIEW.is_match(origin)
+        }))
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
         .allow_credentials(true);
