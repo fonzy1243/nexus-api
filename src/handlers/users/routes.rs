@@ -5,7 +5,7 @@ use axum::{
     response::{Html, IntoResponse},
     routing::{get, get_service, patch, post},
 };
-use axum_extra::extract::cookie::{self, Cookie, CookieJar, SameSite};
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
@@ -30,7 +30,8 @@ pub fn router() -> Router<AppState> {
         .route("/auth/refresh", post(refresh))
         .route("/auth/reset-password", post(reset_password))
         .route("/auth/security-question", post(get_security_question))
-        .route("/{id}", get(get_user_by_id))
+        // .route("/{id}", get(get_user_by_id))
+        .route("/{username}", get(get_user_by_username))
         .route("/{id}/posts", get(get_user_posts))
         .route("/{id}/comments", get(get_user_comments))
         // protected - uses AuthUser or AdminUser
@@ -48,11 +49,16 @@ async fn register(
 ) -> Result<impl IntoResponse> {
     let res = Mutation::register(&state, input).await?;
 
+    let is_prod = !cfg!(debug_assertions);
     let cookie = Cookie::build(("refresh_token", res.refresh_token))
         .http_only(true)
-        .secure(true)
-        .same_site(SameSite::None)
-        .path("/users/auth")
+        .secure(is_prod)
+        .same_site(if is_prod {
+            SameSite::None
+        } else {
+            SameSite::Lax
+        })
+        .path("/")
         .max_age(time::Duration::days(30))
         .build();
 
@@ -62,6 +68,7 @@ async fn register(
             "access_token": res.access_token,
             "user_id": res.user_id,
             "username": res.username,
+            "role": res.role
         })),
     ))
 }
@@ -73,11 +80,17 @@ async fn login(
 ) -> Result<impl IntoResponse> {
     let res = Mutation::login(&state, input).await?;
 
+    let is_prod = !cfg!(debug_assertions);
+
     let cookie = Cookie::build(("refresh_token", res.refresh_token))
         .http_only(true)
-        .secure(true)
-        .same_site(SameSite::None)
-        .path("/users/auth")
+        .secure(is_prod)
+        .same_site(if is_prod {
+            SameSite::None
+        } else {
+            SameSite::Lax
+        })
+        .path("/")
         .max_age(time::Duration::days(30))
         .build();
 
@@ -87,6 +100,7 @@ async fn login(
             "access_token": res.access_token,
             "user_id": res.user_id,
             "username": res.username,
+            "role": res.role
         })),
     ))
 }
@@ -98,11 +112,16 @@ async fn refresh(State(state): State<AppState>, jar: CookieJar) -> Result<impl I
         .ok_or(AppError::Unauthorized)?;
     let res = Mutation::refresh(&state, RefreshInput { refresh_token }).await?;
 
+    let is_prod = !cfg!(debug_assertions);
     let cookie = Cookie::build(("refresh_token", res.refresh_token))
         .http_only(true)
-        .secure(true)
-        .same_site(SameSite::None)
-        .path("/users/auth")
+        .secure(is_prod)
+        .same_site(if is_prod {
+            SameSite::None
+        } else {
+            SameSite::Lax
+        })
+        .path("/")
         .max_age(time::Duration::days(30))
         .build();
 
@@ -110,6 +129,7 @@ async fn refresh(State(state): State<AppState>, jar: CookieJar) -> Result<impl I
         jar.add(cookie),
         Json(json!({
             "access_token": res.access_token,
+            "role": res.role
         })),
     ))
 }
@@ -125,8 +145,9 @@ async fn logout(
         .ok_or(AppError::Unauthorized)?;
     Mutation::logout(&state, auth.id, RefreshInput { refresh_token }).await?;
 
-    let cookie = Cookie::build(("refresh_token", ""))
-        .path("/users/auth")
+    let is_prod = !cfg!(debug_assertions);
+    let cookie = Cookie::build(("refresh_token", "\0"))
+        .path("/")
         .max_age(time::Duration::seconds(0))
         .build();
 
@@ -186,6 +207,14 @@ async fn get_user_by_id(
     Path(user_id): Path<Uuid>,
 ) -> Result<Json<UserSummary>> {
     let user = UserQuery::find_user_by_id(&state, user_id).await?;
+    Ok(Json(user))
+}
+
+async fn get_user_by_username(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Json<UserSummary>> {
+    let user = UserQuery::find_user_by_username(&state, username).await?;
     Ok(Json(user))
 }
 
