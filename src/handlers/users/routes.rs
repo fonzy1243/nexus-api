@@ -61,6 +61,7 @@ async fn register(
             "access_token": res.access_token,
             "user_id": res.user_id,
             "username": res.username,
+            "role": res.role,
         })),
     ))
 }
@@ -86,6 +87,7 @@ async fn login(
             "access_token": res.access_token,
             "user_id": res.user_id,
             "username": res.username,
+            "role": res.role,
         })),
     ))
 }
