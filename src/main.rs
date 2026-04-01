@@ -73,6 +73,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/posts", handlers::posts::routes::router())
         .nest("/communities", handlers::communities::routes::router())
         .nest("/logs", handlers::logs::routes::router())
+        .nest("/search", handlers::search::routes::router())
         .layer(cors)
         .with_state(state);
 
