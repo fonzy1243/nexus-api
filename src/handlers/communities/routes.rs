@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    routing::{get, patch},
+    routing::{get, patch, post},
 };
 use http::StatusCode;
 use uuid::Uuid;
@@ -13,6 +13,7 @@ use crate::{
     handlers::{
         communities::mutation::{
             CreateCommunityInput, Mutation as CommunityMutation, UpdateCommunityInput,
+            UpdateModeratorInput,
         },
         posts::query::{ListParams, PostSummary},
     },
@@ -24,6 +25,12 @@ pub fn router() -> Router<AppState> {
         .route("/", get(get_all_communities).post(create_community))
         .route("/{id}", patch(update_community).delete(delete_community))
         .route("/{id}/posts", get(get_community_posts))
+        .route("/{id}/mod-status", get(get_moderator_status))
+        .route(
+            "/{id}/moderators",
+            post(make_moderator).delete(remove_moderator),
+        )
+        .route("/{id}/join", post(join_community).delete(leave_community))
 }
 
 async fn get_all_communities(
@@ -58,8 +65,7 @@ async fn update_community(
     Path(community_id): Path<Uuid>,
     Json(input): Json<UpdateCommunityInput>,
 ) -> Result<Json<CommunitySummary>> {
-    let community =
-        CommunityMutation::update_community(&state, auth.id, community_id, input).await?;
+    let community = CommunityMutation::update_community(&state, &auth, community_id, input).await?;
     Ok(Json(CommunitySummary {
         id: community.id,
         name: community.name,
@@ -73,7 +79,7 @@ async fn delete_community(
     auth: AuthUser,
     Path(community_id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    CommunityMutation::delete_community(&state, auth.id, community_id).await?;
+    CommunityMutation::delete_community(&state, &auth, community_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -85,4 +91,52 @@ async fn get_community_posts(
     Ok(Json(
         CommunityQuery::get_community_posts(&state, community_id, params).await?,
     ))
+}
+
+async fn get_moderator_status(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+) -> Result<Json<bool>> {
+    Ok(Json(
+        CommunityQuery::is_moderator(&state, auth.id, community_id).await?,
+    ))
+}
+
+async fn make_moderator(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+    Json(input): Json<UpdateModeratorInput>,
+) -> Result<StatusCode> {
+    CommunityMutation::make_moderator(&state, &auth, community_id, input).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn remove_moderator(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+    Json(input): Json<UpdateModeratorInput>,
+) -> Result<StatusCode> {
+    CommunityMutation::remove_moderator(&state, &auth, community_id, input).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn join_community(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+) -> Result<StatusCode> {
+    CommunityMutation::join_community(&state, auth.id, community_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn leave_community(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+) -> Result<StatusCode> {
+    CommunityMutation::leave_community(&state, auth.id, community_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

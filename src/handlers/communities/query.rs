@@ -5,8 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     entity::{
-        communities, communities::Entity as Communities, posts, posts::Entity as Posts, users,
-        users::Entity as Users,
+        communities::{self, Entity as Communities},
+        posts::{self, Entity as Posts},
+        subscriptions::{self, Entity as Subscriptions, SubRole},
+        users::{self, Entity as Users},
     },
     error::Result,
     state::AppState,
@@ -31,6 +33,17 @@ pub struct CommunitySummary {
 pub struct Query;
 
 impl Query {
+    pub async fn is_moderator(state: &AppState, user_id: Uuid, community_id: Uuid) -> Result<bool> {
+        let sub = Subscriptions::find()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(user_id))
+            .filter(subscriptions::Column::Role.eq(SubRole::Moderator))
+            .one(&state.db)
+            .await?;
+
+        Ok(sub.is_some())
+    }
+
     pub async fn get_all_communities(
         state: &AppState,
         params: PagaParams,

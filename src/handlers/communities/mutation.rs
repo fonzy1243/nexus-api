@@ -1,11 +1,17 @@
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::Deserialize;
 use uuid::Uuid;
 
+use super::query::Query;
+
 use crate::{
-    entity::communities,
-    entity::communities::Entity as Communities,
+    entity::{
+        communities::{self, Entity as Communities},
+        subscriptions::{self, Entity as Subscriptions, SubRole},
+        users::UserRole,
+    },
     error::{AppError, Result},
+    extractors::AuthUser,
     logger::{action, log, target},
     state::AppState,
 };
@@ -20,6 +26,11 @@ pub struct CreateCommunityInput {
 pub struct UpdateCommunityInput {
     pub name: Option<String>,
     pub logo: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateModeratorInput {
+    pub user_id: Uuid,
 }
 
 pub struct Mutation;
@@ -40,6 +51,15 @@ impl Mutation {
         .insert(&state.db)
         .await?;
 
+        subscriptions::ActiveModel {
+            community_id: Set(id),
+            subscriber_id: Set(user_id),
+            role: Set(SubRole::Moderator),
+            created_at: Set(chrono::Utc::now()),
+        }
+        .insert(&state.db)
+        .await?;
+
         let _ = log(state, user_id, action::CREATE, target::COMMUNITY, id).await;
 
         Ok(community)
@@ -47,10 +67,16 @@ impl Mutation {
 
     pub async fn update_community(
         state: &AppState,
-        user_id: Uuid,
+        auth: &AuthUser,
         community_id: Uuid,
         input: UpdateCommunityInput,
     ) -> Result<communities::Model> {
+        if auth.role != UserRole::Admin {
+            if !Query::is_moderator(state, auth.id, community_id).await? {
+                return Err(AppError::Unauthorized);
+            }
+        }
+
         let community = Communities::find_by_id(community_id)
             .one(&state.db)
             .await?
@@ -74,7 +100,7 @@ impl Mutation {
 
         let _ = log(
             state,
-            user_id,
+            auth.id,
             action::UPDATE,
             target::COMMUNITY,
             community_id,
@@ -86,9 +112,13 @@ impl Mutation {
 
     pub async fn delete_community(
         state: &AppState,
-        admin_id: Uuid,
+        auth: &AuthUser,
         community_id: Uuid,
     ) -> Result<()> {
+        if auth.role != UserRole::Admin {
+            return Err(AppError::Unauthorized);
+        }
+
         Communities::find_by_id(community_id)
             .one(&state.db)
             .await?
@@ -100,12 +130,152 @@ impl Mutation {
 
         let _ = log(
             state,
-            admin_id,
+            auth.id,
             action::DELETE,
             target::COMMUNITY,
             community_id,
         )
         .await;
+
+        Ok(())
+    }
+
+    pub async fn make_moderator(
+        state: &AppState,
+        auth: &AuthUser,
+        community_id: Uuid,
+        input: UpdateModeratorInput,
+    ) -> Result<()> {
+        if auth.role != UserRole::Admin {
+            if !Query::is_moderator(state, auth.id, community_id).await? {
+                return Err(AppError::Unauthorized);
+            }
+        }
+
+        let sub = Subscriptions::find()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(input.user_id))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::BadRequest(
+                "User is not a member of this community".into(),
+            ))?;
+
+        let mut active: subscriptions::ActiveModel = sub.into();
+        active.role = Set(SubRole::Moderator);
+        active.update(&state.db).await?;
+
+        let _ = log(
+            state,
+            auth.id,
+            action::UPDATE,
+            target::COMMUNITY,
+            community_id,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    pub async fn remove_moderator(
+        state: &AppState,
+        auth: &AuthUser,
+        community_id: Uuid,
+        input: UpdateModeratorInput,
+    ) -> Result<()> {
+        if auth.role != UserRole::Admin {
+            return Err(AppError::Unauthorized);
+        }
+
+        let sub = Subscriptions::find()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(input.user_id))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let mut active: subscriptions::ActiveModel = sub.into();
+        active.role = Set(SubRole::Subscriber);
+        active.update(&state.db).await?;
+
+        let _ = log(
+            state,
+            auth.id,
+            action::UPDATE,
+            target::COMMUNITY,
+            community_id,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    pub async fn join_community(state: &AppState, user_id: Uuid, community_id: Uuid) -> Result<()> {
+        Communities::find_by_id(community_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let existing = Subscriptions::find()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(user_id))
+            .one(&state.db)
+            .await?;
+
+        if existing.is_some() {
+            return Err(AppError::BadRequest(
+                "Already a member of this community".into(),
+            ));
+        }
+
+        subscriptions::ActiveModel {
+            community_id: Set(community_id),
+            subscriber_id: Set(user_id),
+            role: Set(SubRole::Subscriber),
+            created_at: Set(chrono::Utc::now()),
+        }
+        .insert(&state.db)
+        .await?;
+
+        let _ = log(
+            state,
+            user_id,
+            action::CREATE,
+            target::SUBSCRIPTION,
+            community_id,
+        )
+        .await;
+
+        Ok(())
+    }
+
+    pub async fn leave_community(
+        state: &AppState,
+        user_id: Uuid,
+        community_id: Uuid,
+    ) -> Result<()> {
+        let sub = Subscriptions::find()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(user_id))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::BadRequest(
+                "Not a member of this community".into(),
+            ))?;
+
+        Subscriptions::delete_many()
+            .filter(subscriptions::Column::CommunityId.eq(community_id))
+            .filter(subscriptions::Column::SubscriberId.eq(user_id))
+            .exec(&state.db)
+            .await?;
+
+        let _ = log(
+            state,
+            user_id,
+            action::DELETE,
+            target::SUBSCRIPTION,
+            community_id,
+        );
 
         Ok(())
     }
