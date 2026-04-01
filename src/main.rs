@@ -60,7 +60,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
         .allow_credentials(true);
 
-    let db = Database::connect(connection_str).await?;
+    let db = {
+        let mut retries = 10;
+        loop {
+            match Database::connect(&connection_str).await {
+                Ok(db) => break db,
+                Err(e) if retries > 0 => {
+                    tracing::warn!("DB connection failed, retrying... ({retries} left): {e}");
+                    retries -= 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    };
+
     db.get_schema_registry("nexus-api::entity::*")
         .sync(&db)
         .await?;
