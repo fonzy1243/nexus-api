@@ -43,10 +43,27 @@ pub fn router() -> Router<AppState> {
 
 async fn register(
     State(state): State<AppState>,
+    jar: CookieJar,
     Json(input): Json<RegisterInput>,
-) -> Result<Json<AuthResponse>> {
+) -> Result<impl IntoResponse> {
     let res = Mutation::register(&state, input).await?;
-    Ok(Json(res))
+
+    let cookie = Cookie::build(("refresh_token", res.refresh_token))
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::None)
+        .path("/users/auth")
+        .max_age(time::Duration::days(30))
+        .build();
+
+    Ok((
+        jar.add(cookie),
+        Json(json!({
+            "access_token": res.access_token,
+            "user_id": res.user_id,
+            "username": res.username,
+        })),
+    ))
 }
 
 async fn login(
