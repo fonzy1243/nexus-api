@@ -52,6 +52,20 @@ impl Query {
         })
     }
 
+    pub async fn find_user_by_username(state: &AppState, username: String) -> Result<UserSummary> {
+        let user = Users::find()
+            .filter(users::Column::Username.eq(username))
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        Ok(UserSummary {
+            id: user.id,
+            username: user.username,
+            created_at: user.created_at.to_string(),
+        })
+    }
+
     pub async fn get_user_posts(
         state: &AppState,
         user_id: Uuid,
