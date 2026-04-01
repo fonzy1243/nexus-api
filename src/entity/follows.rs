@@ -23,7 +23,7 @@ pub struct Model {
         to = "id"
     )]
     pub follower: HasOne<super::users::Entity>,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

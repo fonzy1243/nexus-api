@@ -17,7 +17,7 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "comment_id", to = "id")]
     pub comment: HasOne<super::comments::Entity>,
     pub vote_type: i8,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

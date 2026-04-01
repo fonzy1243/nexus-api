@@ -17,7 +17,7 @@ pub struct Model {
     pub user_id: uuid::Uuid,
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::users::Entity>,
-    pub created_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

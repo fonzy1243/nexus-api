@@ -55,7 +55,7 @@ impl Mutation {
         }
 
         let id = Uuid::new_v4();
-        let now = chrono::Utc::now().naive_utc();
+        let now = chrono::Utc::now();
 
         let comment = comments::ActiveModel {
             id: Set(id),
@@ -100,7 +100,7 @@ impl Mutation {
             active.media_key = Set(Some(media_key));
         }
 
-        active.edited_at = Set(chrono::Utc::now().naive_utc());
+        active.edited_at = Set(chrono::Utc::now());
 
         let updated = active.update(&state.db).await?;
 

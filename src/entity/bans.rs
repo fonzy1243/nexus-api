@@ -17,8 +17,8 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "community_id", to = "id")]
     pub community: HasOne<super::communities::Entity>,
     pub reason: String,
-    pub created_at: ChronoDateTime,
-    pub expires_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
+    pub expires_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -22,8 +22,8 @@ pub struct Model {
     pub parent_id: Option<uuid::Uuid>,
     #[sea_orm(self_ref, relation_enum = "RepliesTo", from = "parent_id", to = "id")]
     pub parent: HasOne<Entity>,
-    pub created_at: ChronoDateTime,
-    pub edited_at: ChronoDateTime,
+    pub created_at: ChronoDateTimeUtc,
+    pub edited_at: ChronoDateTimeUtc,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
