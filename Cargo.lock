@@ -1701,6 +1701,7 @@ dependencies = [
  "dotenvy",
  "http",
  "jsonwebtoken",
+ "regex",
  "sea-orm",
  "serde",
  "serde_json",
