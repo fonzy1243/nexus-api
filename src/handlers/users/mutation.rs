@@ -76,6 +76,7 @@ pub struct AuthResponse {
     pub refresh_token: String,
     pub user_id: Uuid,
     pub username: String,
+    pub role: UserRole,
     pub last_login_at: Option<String>,
 }
 
@@ -174,6 +175,7 @@ impl Mutation {
             refresh_token: raw_refresh,
             user_id: id,
             username: input.username,
+            role: UserRole::User,
             last_login_at: None,
         })
     }
@@ -248,6 +250,7 @@ impl Mutation {
             refresh_token: raw_refresh,
             user_id: user.id,
             username: user.username,
+            role: user.role,
             last_login_at: previous_login,
         })
     }
@@ -297,6 +300,7 @@ impl Mutation {
             refresh_token: raw_refresh,
             user_id: user.id,
             username: user.username,
+            role: user.role,
             last_login_at: user.last_login_at.map(|t| t.to_string()),
         })
     }
