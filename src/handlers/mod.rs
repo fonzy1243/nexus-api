@@ -4,6 +4,7 @@ pub mod communities;
 pub mod follows;
 pub mod logs;
 pub mod posts;
+pub mod search;
 pub mod subscriptions;
 pub mod users;
 pub mod votes;
