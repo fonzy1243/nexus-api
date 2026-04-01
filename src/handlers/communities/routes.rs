@@ -11,9 +11,12 @@ use crate::{
     error::Result,
     extractors::AuthUser,
     handlers::{
-        communities::mutation::{
-            CreateCommunityInput, Mutation as CommunityMutation, UpdateCommunityInput,
-            UpdateModeratorInput,
+        communities::{
+            mutation::{
+                CreateCommunityInput, Mutation as CommunityMutation, UpdateCommunityInput,
+                UpdateModeratorInput,
+            },
+            query::CommunityMember,
         },
         posts::query::{ListParams, PostSummary},
     },
@@ -25,7 +28,9 @@ pub fn router() -> Router<AppState> {
         .route("/", get(get_all_communities).post(create_community))
         .route("/{id}", patch(update_community).delete(delete_community))
         .route("/{id}/posts", get(get_community_posts))
+        .route("/{id}/members", get(get_community_members))
         .route("/{id}/mod-status", get(get_moderator_status))
+        .route("/{id}/member-status", get(get_member_status))
         .route(
             "/{id}/moderators",
             post(make_moderator).delete(remove_moderator),
@@ -48,15 +53,9 @@ async fn create_community(
     Json(input): Json<CreateCommunityInput>,
 ) -> Result<(StatusCode, Json<CommunitySummary>)> {
     let community = CommunityMutation::create_community(&state, auth.id, input).await?;
-    Ok((
-        StatusCode::CREATED,
-        Json(CommunitySummary {
-            id: community.id,
-            name: community.name,
-            logo: community.logo,
-            created_at: community.created_at.to_string(),
-        }),
-    ))
+
+    let summary = CommunityQuery::get_community_summary(&state, community).await?;
+    Ok((StatusCode::CREATED, Json(summary)))
 }
 
 async fn update_community(
@@ -66,12 +65,9 @@ async fn update_community(
     Json(input): Json<UpdateCommunityInput>,
 ) -> Result<Json<CommunitySummary>> {
     let community = CommunityMutation::update_community(&state, &auth, community_id, input).await?;
-    Ok(Json(CommunitySummary {
-        id: community.id,
-        name: community.name,
-        logo: community.logo,
-        created_at: community.created_at.to_string(),
-    }))
+
+    let summary = CommunityQuery::get_community_summary(&state, community).await?;
+    Ok(Json(summary))
 }
 
 async fn delete_community(
@@ -100,6 +96,16 @@ async fn get_moderator_status(
 ) -> Result<Json<bool>> {
     Ok(Json(
         CommunityQuery::is_moderator(&state, auth.id, community_id).await?,
+    ))
+}
+
+async fn get_member_status(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(community_id): Path<Uuid>,
+) -> Result<Json<bool>> {
+    Ok(Json(
+        CommunityQuery::is_member(&state, auth.id, community_id).await?,
     ))
 }
 
@@ -139,4 +145,13 @@ async fn leave_community(
 ) -> Result<StatusCode> {
     CommunityMutation::leave_community(&state, auth.id, community_id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn get_community_members(
+    State(state): State<AppState>,
+    Path(community_id): Path<Uuid>,
+) -> Result<Json<Vec<CommunityMember>>> {
+    Ok(Json(
+        CommunityQuery::get_community_members(&state, community_id).await?,
+    ))
 }
