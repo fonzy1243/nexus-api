@@ -6,7 +6,7 @@ use crate::{
         users::{self, Entity as Users, SecurityQuestion, UserRole},
     },
     error::{AppError, Result},
-    extractors::AuthUser,
+    extractors::{AdminUser, AuthUser},
     logger::{action, log, target},
     state::AppState,
 };
@@ -63,6 +63,11 @@ pub struct ResetPasswordInput {
     pub security_answer: String,
     pub new_password: String,
     pub confirm_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateRoleInput {
+    pub user_id: Uuid,
 }
 
 #[derive(Serialize)]
@@ -603,6 +608,54 @@ impl Mutation {
         active.security_question = Set(Some(input.question));
         active.security_answer_hash = Set(Some(answer_hash));
         active.update(&state.db).await?;
+
+        Ok(())
+    }
+
+    pub async fn make_admin(
+        state: &AppState,
+        admin: &AdminUser,
+        input: UpdateRoleInput,
+    ) -> Result<()> {
+        let user = Users::find_by_id(input.user_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        if user.role == UserRole::Admin {
+            return Err(AppError::BadRequest("User is already an admin".into()));
+        }
+
+        let mut active: users::ActiveModel = user.into();
+        active.role = Set(UserRole::Admin);
+        active.update(&state.db).await?;
+
+        let _ = log(state, admin.id, action::UPDATE, target::USER, input.user_id).await;
+
+        Ok(())
+    }
+
+    pub async fn remove_admin(
+        state: &AppState,
+        admin: &AdminUser,
+        input: UpdateRoleInput,
+    ) -> Result<()> {
+        if admin.id == input.user_id {
+            return Err(AppError::BadRequest(
+                "Cannot remove your own admin role".into(),
+            ));
+        }
+
+        let user = Users::find_by_id(input.user_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let mut active: users::ActiveModel = user.into();
+        active.role = Set(UserRole::User);
+        active.update(&state.db).await?;
+
+        let _ = log(state, admin.id, action::UPDATE, target::USER, input.user_id).await;
 
         Ok(())
     }

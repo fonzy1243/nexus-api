@@ -12,13 +12,13 @@ use uuid::Uuid;
 
 use super::mutation::{
     AuthResponse, ChangePasswordInput, ChangeUsernameInput, LoginInput, Mutation, RefreshInput,
-    RegisterInput, ResetPasswordInput, SetSecurityQuestionInput,
+    RegisterInput, ResetPasswordInput, SetSecurityQuestionInput, UpdateRoleInput,
 };
 use super::query::{Params, PostSummary, Query as UserQuery, UserSummary};
 use crate::{
     entity::comments,
     error::{AppError, Result},
-    extractors::AuthUser,
+    extractors::{AdminUser, AuthUser},
     state::AppState,
 };
 
@@ -33,11 +33,12 @@ pub fn router() -> Router<AppState> {
         .route("/{id}", get(get_user_by_id))
         .route("/{id}/posts", get(get_user_posts))
         .route("/{id}/comments", get(get_user_comments))
-        // protected - uses AuthUser
+        // protected - uses AuthUser or AdminUser
         .route("/auth/logout", post(logout))
         .route("/me/username", patch(change_username))
         .route("/me/password", patch(change_password))
         .route("/me/security-question", post(set_security_question))
+        .route("/admin/role", post(make_admin).delete(remove_admin))
 }
 
 async fn register(
@@ -187,4 +188,22 @@ async fn get_user_comments(
 ) -> Result<Json<Vec<comments::Model>>> {
     let comments = UserQuery::get_user_comments(&state, id, params).await?;
     Ok(Json(comments))
+}
+
+async fn make_admin(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Json(input): Json<UpdateRoleInput>,
+) -> Result<StatusCode> {
+    Mutation::make_admin(&state, &admin, input).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn remove_admin(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Json(input): Json<UpdateRoleInput>,
+) -> Result<StatusCode> {
+    Mutation::remove_admin(&state, &admin, input).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
