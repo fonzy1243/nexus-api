@@ -184,7 +184,9 @@ impl Mutation {
         input: UpdateModeratorInput,
     ) -> Result<()> {
         if auth.role != UserRole::Admin {
-            return Err(AppError::Unauthorized);
+            if !Query::is_moderator(state, auth.id, community_id).await? {
+                return Err(AppError::Unauthorized);
+            }
         }
 
         let sub = Subscriptions::find()
