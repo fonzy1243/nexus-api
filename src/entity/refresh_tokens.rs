@@ -10,6 +10,8 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<super::users::Entity>,
     #[sea_orm(unique)]
+    pub token_id: String,
+    #[sea_orm(unique)]
     pub token_hash: String,
     pub expires_at: ChronoDateTimeUtc,
     pub created_at: ChronoDateTimeUtc,
