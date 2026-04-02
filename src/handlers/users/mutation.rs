@@ -193,7 +193,7 @@ impl Mutation {
             .filter(users::Column::Email.eq(&input.email))
             .one(&state.db)
             .await?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("Account does not exist".into()))?;
 
         if let Some(locked_until) = user.locked_until {
             if locked_until > Utc::now() {
@@ -204,8 +204,8 @@ impl Mutation {
 
         let previous_login = user.last_login_at.map(|t| t.to_string());
 
-        let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
+        let parsed_hash = PasswordHash::new(&user.password_hash)
+            .map_err(|_| AppError::Unauthorized("Error occured".into()))?;
 
         let mut active: users::ActiveModel = user.clone().into();
 
@@ -230,7 +230,9 @@ impl Mutation {
 
             active.update(&state.db).await?;
             let _ = log(state, user.id, action::LOGIN_FAILED, target::USER, user.id).await;
-            return Err(AppError::Unauthorized);
+            return Err(AppError::Unauthorized(
+                "Invalid username or password".into(),
+            ));
         }
 
         active.failed_login_attempts = Set(0);
@@ -274,9 +276,9 @@ impl Mutation {
             .find_also_related(Users)
             .one(&state.db)
             .await?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("Invalid refresh token".into()))?;
 
-        let user = user.ok_or(AppError::Unauthorized)?;
+        let user = user.ok_or(AppError::Unauthorized("User no longer exists".into()))?;
 
         verify_refresh_token(&input.refresh_token, &token_row.token_hash)?;
 
@@ -326,7 +328,7 @@ impl Mutation {
             .filter(refresh_tokens::Column::UserId.eq(user_id))
             .one(&state.db)
             .await?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("Invalid refresh token".into()))?;
 
         verify_refresh_token(&input.refresh_token, &token_row.token_hash)?;
 
@@ -349,7 +351,9 @@ impl Mutation {
             Some(id) if auth.role == UserRole::Admin => id,
             Some(id) if id != auth.id => {
                 let _ = log(state, auth.id, action::ACCESS_DENIED, target::USER, id).await;
-                return Err(AppError::Unauthorized);
+                return Err(AppError::Unauthorized(
+                    "You must have admin or moderator access to perform this action".into(),
+                ));
             }
             Some(id) => id,
             None => auth.id,
@@ -403,19 +407,20 @@ impl Mutation {
             .filter(users::Column::Email.eq(&input.email))
             .one(&state.db)
             .await?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("User no longer exists".into()))?;
 
         let answer_hash = user
             .security_answer_hash
             .as_ref()
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("Error occurred".into()))?;
 
-        let parsed = PasswordHash::new(answer_hash).map_err(|_| AppError::Unauthorized)?;
+        let parsed = PasswordHash::new(answer_hash)
+            .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
 
         let answer_normalized = input.security_answer.trim().to_lowercase();
         Argon2::default()
             .verify_password(answer_normalized.as_bytes(), &parsed)
-            .map_err(|_| AppError::Unauthorized)?;
+            .map_err(|_| AppError::Unauthorized("Incorrect security answer".into()))?;
 
         let age = Utc::now() - user.password_changed_at;
         if age < chrono::TimeDelta::days(1) {
@@ -431,8 +436,8 @@ impl Mutation {
             .await?;
 
         for old in &history {
-            let parsed =
-                PasswordHash::new(&old.password_hash).map_err(|_| AppError::Unauthorized)?;
+            let parsed = PasswordHash::new(&old.password_hash)
+                .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
             if Argon2::default()
                 .verify_password(input.new_password.as_bytes(), &parsed)
                 .is_ok()
@@ -508,12 +513,12 @@ impl Mutation {
             .await?
             .ok_or(AppError::NotFound)?;
 
-        let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
+        let parsed_hash = PasswordHash::new(&user.password_hash)
+            .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
 
         Argon2::default()
             .verify_password(input.current_password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::Unauthorized)?;
+            .map_err(|_| AppError::Unauthorized("Wrong password".into()))?;
 
         let age = Utc::now() - user.password_changed_at;
         if age < chrono::TimeDelta::days(1) {
@@ -537,8 +542,8 @@ impl Mutation {
             .await?;
 
         for old in &history {
-            let parsed =
-                PasswordHash::new(&old.password_hash).map_err(|_| AppError::Unauthorized)?;
+            let parsed = PasswordHash::new(&old.password_hash)
+                .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
             if Argon2::default()
                 .verify_password(input.new_password.as_bytes(), &parsed)
                 .is_ok()
@@ -590,7 +595,7 @@ impl Mutation {
             .filter(users::Column::Email.eq(&email))
             .one(&state.db)
             .await?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("User no longer exists".into()))?;
 
         Ok(user
             .security_question
@@ -609,11 +614,11 @@ impl Mutation {
             .await?
             .ok_or(AppError::NotFound)?;
 
-        let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::Unauthorized)?;
+        let parsed_hash = PasswordHash::new(&user.password_hash)
+            .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
         Argon2::default()
             .verify_password(input.current_password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::Unauthorized)?;
+            .map_err(|_| AppError::Unauthorized("Error occurred".into()))?;
 
         let answer_normalized = input.answer.trim().to_lowercase();
         let salt = SaltString::generate(&mut OsRng);

@@ -73,7 +73,9 @@ impl Mutation {
     ) -> Result<communities::Model> {
         if auth.role != UserRole::Admin {
             if !Query::is_moderator(state, auth.id, community_id).await? {
-                return Err(AppError::Unauthorized);
+                return Err(AppError::Unauthorized(
+                    "You must be an admin or moderator to perform this action".into(),
+                ));
             }
         }
 
@@ -116,7 +118,9 @@ impl Mutation {
         community_id: Uuid,
     ) -> Result<()> {
         if auth.role != UserRole::Admin {
-            return Err(AppError::Unauthorized);
+            return Err(AppError::Unauthorized(
+                "You must be an admin to perform this action".into(),
+            ));
         }
 
         Communities::find_by_id(community_id)
@@ -148,7 +152,9 @@ impl Mutation {
     ) -> Result<()> {
         if auth.role != UserRole::Admin {
             if !Query::is_moderator(state, auth.id, community_id).await? {
-                return Err(AppError::Unauthorized);
+                return Err(AppError::Unauthorized(
+                    "You must be an admin or moderator to perform this action".into(),
+                ));
             }
         }
 
@@ -185,7 +191,9 @@ impl Mutation {
     ) -> Result<()> {
         if auth.role != UserRole::Admin {
             if !Query::is_moderator(state, auth.id, community_id).await? {
-                return Err(AppError::Unauthorized);
+                return Err(AppError::Unauthorized(
+                    "You must be an admin or moderator to perform this action".into(),
+                ));
             }
         }
 

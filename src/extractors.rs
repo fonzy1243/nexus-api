@@ -30,7 +30,7 @@ impl FromRequestParts<AppState> for AuthUser {
         let TypedHeader(Authorization(bearer)) =
             TypedHeader::<Authorization<Bearer>>::from_request_parts(parts, state)
                 .await
-                .map_err(|_| AppError::Unauthorized)?;
+                .map_err(|_| AppError::Unauthorized("Invalid authorization header".into()))?;
 
         let claims = verify_token(bearer.token(), &state.jwt_secret)?;
 
@@ -38,11 +38,11 @@ impl FromRequestParts<AppState> for AuthUser {
             .one(&state.db)
             .await
             .map_err(AppError::Database)?
-            .ok_or(AppError::Unauthorized)?;
+            .ok_or(AppError::Unauthorized("Account no longer exists".into()))?;
 
         if user.token_version != claims.version {
             let _ = log(state, user.id, action::ACCESS_DENIED, target::USER, user.id).await;
-            return Err(AppError::Unauthorized);
+            return Err(AppError::Unauthorized("Session expired".into()));
         }
 
         Ok(AuthUser {
@@ -60,7 +60,9 @@ impl FromRequestParts<AppState> for AdminUser {
 
         if auth.role != UserRole::Admin {
             let _ = log(state, auth.id, action::ACCESS_DENIED, target::USER, auth.id).await;
-            return Err(AppError::Unauthorized);
+            return Err(AppError::Unauthorized(
+                "You must be an admin to perform this action".into(),
+            ));
         }
 
         Ok(AdminUser { id: auth.id })

@@ -5,7 +5,7 @@ use serde_json::json;
 pub enum AppError {
     Database(sea_orm::DbErr),
     NotFound,
-    Unauthorized,
+    Unauthorized(String),
     BadRequest(String),
     Forbidden,
 }
@@ -15,7 +15,7 @@ impl std::fmt::Display for AppError {
         match self {
             AppError::Database(e) => write!(f, "Database error: {e}"),
             AppError::NotFound => write!(f, "Not found"),
-            AppError::Unauthorized => write!(f, "Unauthorized"),
+            AppError::Unauthorized(u) => write!(f, "Unauthorized: {u}"),
             AppError::BadRequest(m) => write!(f, "Bad request: {m}"),
             AppError::Forbidden => write!(f, "Access denied"),
         }
@@ -35,7 +35,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
-            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AppError::Unauthorized(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
         };

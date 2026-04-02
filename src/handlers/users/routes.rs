@@ -115,7 +115,7 @@ async fn refresh(
     let refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
+        .ok_or(AppError::Unauthorized("Invalid refresh token".into()))?;
 
     let refresh_token_id = body["refresh_token_id"]
         .as_str()
@@ -165,7 +165,7 @@ async fn logout(
     let refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
+        .ok_or(AppError::Unauthorized("Invalid refresh token".into()))?;
 
     let refresh_token_id = body["refresh_token_id"]
         .as_str()

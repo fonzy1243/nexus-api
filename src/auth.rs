@@ -62,12 +62,13 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
         &Validation::default(),
     )
     .map(|d| d.claims)
-    .map_err(|_| AppError::Unauthorized)
+    .map_err(|_| AppError::Unauthorized("Invalid token".into()))
 }
 
 pub fn verify_refresh_token(raw: &str, hash: &str) -> Result<()> {
-    let parsed = PasswordHash::new(hash).map_err(|_| AppError::Unauthorized)?;
+    let parsed =
+        PasswordHash::new(hash).map_err(|_| AppError::Unauthorized("Invalid hash".into()))?;
     Argon2::default()
         .verify_password(raw.as_bytes(), &parsed)
-        .map_err(|_| AppError::Unauthorized)
+        .map_err(|_| AppError::Unauthorized("Invalid token".into()))
 }
