@@ -278,6 +278,8 @@ impl Mutation {
 
         let user = user.ok_or(AppError::Unauthorized)?;
 
+        verify_refresh_token(&input.refresh_token, &token_row.token_hash)?;
+
         RefreshTokens::delete_by_id(token_row.id)
             .exec(&state.db)
             .await?;
