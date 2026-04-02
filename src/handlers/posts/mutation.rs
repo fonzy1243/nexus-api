@@ -6,6 +6,7 @@ use crate::{
     entity::posts,
     entity::posts::Entity as Posts,
     error::{AppError, Result},
+    handlers::communities::query::Query as CommunityQuery,
     logger::{action, log, target},
     state::AppState,
 };
@@ -75,7 +76,9 @@ impl Mutation {
             .await?
             .ok_or(AppError::NotFound)?;
 
-        if post.user_id != user_id && !is_admin {
+        let is_moderator = CommunityQuery::is_moderator(state, user_id, post.community_id).await?;
+
+        if post.user_id != user_id && !is_admin && !is_moderator {
             let _ = log(state, user_id, action::ACCESS_DENIED, target::POST, post_id).await;
             return Err(AppError::Forbidden);
         }
@@ -118,7 +121,9 @@ impl Mutation {
             .await?
             .ok_or(AppError::NotFound)?;
 
-        if post.user_id != user_id && !is_admin {
+        let is_moderator = CommunityQuery::is_moderator(state, user_id, post.community_id).await?;
+
+        if post.user_id != user_id && !is_admin && !is_moderator {
             let _ = log(state, user_id, action::ACCESS_DENIED, target::POST, post_id).await;
             return Err(AppError::Forbidden);
         }

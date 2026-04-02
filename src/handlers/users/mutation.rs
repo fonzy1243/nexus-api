@@ -35,6 +35,7 @@ pub struct LoginInput {
 #[derive(Deserialize)]
 pub struct RefreshInput {
     pub refresh_token: String,
+    pub refresh_token_id: String,
 }
 
 #[derive(Deserialize)]
@@ -73,7 +74,7 @@ pub struct UpdateRoleInput {
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub access_token: String,
-    pub refresh_token: String,
+    pub refresh_token_id: String,
     pub user_id: Uuid,
     pub username: String,
     pub role: UserRole,
@@ -110,7 +111,10 @@ fn validate_password(password: &str) -> Result<()> {
 }
 
 impl Mutation {
-    pub async fn register(state: &AppState, input: RegisterInput) -> Result<AuthResponse> {
+    pub async fn register(
+        state: &AppState,
+        input: RegisterInput,
+    ) -> Result<(AuthResponse, String)> {
         validate_password(&input.password)?;
 
         let existing = Users::find()
@@ -156,11 +160,12 @@ impl Mutation {
         active.insert(&state.db).await?;
 
         let access_token = create_token(id, &state.jwt_secret, 0)?;
-        let (raw_refresh, hashed_refresh) = create_refresh_token()?;
+        let (token_id, raw_refresh, hashed_refresh) = create_refresh_token()?;
 
         refresh_tokens::ActiveModel {
             id: Set(Uuid::new_v4()),
             user_id: Set(id),
+            token_id: Set(token_id.clone()),
             token_hash: Set(hashed_refresh),
             expires_at: Set(Utc::now() + Duration::days(30)),
             created_at: Set(Utc::now()),
@@ -170,17 +175,20 @@ impl Mutation {
 
         let _ = log(state, id, action::REGISTER, target::USER, id).await;
 
-        Ok(AuthResponse {
-            access_token,
-            refresh_token: raw_refresh,
-            user_id: id,
-            username: input.username,
-            role: UserRole::User,
-            last_login_at: None,
-        })
+        Ok((
+            AuthResponse {
+                access_token,
+                refresh_token_id: token_id,
+                user_id: id,
+                username: input.username,
+                role: UserRole::User,
+                last_login_at: None,
+            },
+            raw_refresh,
+        ))
     }
 
-    pub async fn login(state: &AppState, input: LoginInput) -> Result<AuthResponse> {
+    pub async fn login(state: &AppState, input: LoginInput) -> Result<(AuthResponse, String)> {
         let user = Users::find()
             .filter(users::Column::Email.eq(&input.email))
             .one(&state.db)
@@ -233,11 +241,12 @@ impl Mutation {
         let _ = log(state, user.id, action::LOGIN_SUCCESS, target::USER, user.id).await;
 
         let access_token = create_token(user.id, &state.jwt_secret, user.token_version)?;
-        let (raw_refresh, hashed_refresh) = create_refresh_token()?;
+        let (token_id, raw_refresh, hashed_refresh) = create_refresh_token()?;
 
         refresh_tokens::ActiveModel {
             id: Set(Uuid::new_v4()),
             user_id: Set(user.id),
+            token_id: Set(token_id.clone()),
             token_hash: Set(hashed_refresh),
             expires_at: Set(Utc::now() + Duration::days(30)),
             created_at: Set(Utc::now()),
@@ -245,27 +254,26 @@ impl Mutation {
         .insert(&state.db)
         .await?;
 
-        Ok(AuthResponse {
-            access_token,
-            refresh_token: raw_refresh,
-            user_id: user.id,
-            username: user.username,
-            role: user.role,
-            last_login_at: previous_login,
-        })
+        Ok((
+            AuthResponse {
+                access_token,
+                refresh_token_id: token_id,
+                user_id: user.id,
+                username: user.username,
+                role: user.role,
+                last_login_at: previous_login,
+            },
+            raw_refresh,
+        ))
     }
 
-    pub async fn refresh(state: &AppState, input: RefreshInput) -> Result<AuthResponse> {
-        // Find matching refresh token
-        let tokens = RefreshTokens::find()
+    pub async fn refresh(state: &AppState, input: RefreshInput) -> Result<(AuthResponse, String)> {
+        let (token_row, user) = RefreshTokens::find()
+            .filter(refresh_tokens::Column::TokenId.eq(&input.refresh_token_id))
             .filter(refresh_tokens::Column::ExpiresAt.gt(Utc::now()))
             .find_also_related(Users)
-            .all(&state.db)
-            .await?;
-
-        let (token_row, user) = tokens
-            .into_iter()
-            .find(|(t, _)| verify_refresh_token(&input.refresh_token, &t.token_hash).is_ok())
+            .one(&state.db)
+            .await?
             .ok_or(AppError::Unauthorized)?;
 
         let user = user.ok_or(AppError::Unauthorized)?;
@@ -275,11 +283,12 @@ impl Mutation {
             .await?;
 
         let access_token = create_token(user.id, &state.jwt_secret, user.token_version)?;
-        let (raw_refresh, hashed_refresh) = create_refresh_token()?;
+        let (token_id, raw_refresh, hashed_refresh) = create_refresh_token()?;
 
         refresh_tokens::ActiveModel {
             id: Set(Uuid::new_v4()),
             user_id: Set(user.id),
+            token_id: Set(token_id.clone()),
             token_hash: Set(hashed_refresh),
             expires_at: Set(Utc::now() + Duration::days(30)),
             created_at: Set(Utc::now()),
@@ -295,33 +304,36 @@ impl Mutation {
             token_row.id,
         );
 
-        Ok(AuthResponse {
-            access_token,
-            refresh_token: raw_refresh,
-            user_id: user.id,
-            username: user.username,
-            role: user.role,
-            last_login_at: user.last_login_at.map(|t| t.to_string()),
-        })
+        Ok((
+            AuthResponse {
+                access_token,
+                refresh_token_id: token_id,
+                user_id: user.id,
+                username: user.username,
+                role: user.role,
+                last_login_at: user.last_login_at.map(|t| t.to_string()),
+            },
+            raw_refresh,
+        ))
     }
 
     // Delete all refresh tokens
     pub async fn logout(state: &AppState, user_id: Uuid, input: RefreshInput) -> Result<()> {
-        let tokens = RefreshTokens::find()
+        let token_row = RefreshTokens::find()
+            .filter(refresh_tokens::Column::TokenId.eq(&input.refresh_token_id))
             .filter(refresh_tokens::Column::UserId.eq(user_id))
-            .all(&state.db)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        verify_refresh_token(&input.refresh_token, &token_row.token_hash)?;
+
+        let token_id = token_row.id;
+        RefreshTokens::delete_by_id(token_id)
+            .exec(&state.db)
             .await?;
 
-        for token in tokens {
-            if verify_refresh_token(&input.refresh_token, &token.token_hash).is_ok() {
-                let token_id = token.id;
-                RefreshTokens::delete_by_id(token.id)
-                    .exec(&state.db)
-                    .await?;
-                let _ = log(state, user_id, action::LOGOUT, target::SESSION, token_id);
-                break;
-            }
-        }
+        let _ = log(state, user_id, action::LOGOUT, target::SESSION, token_id);
 
         Ok(())
     }

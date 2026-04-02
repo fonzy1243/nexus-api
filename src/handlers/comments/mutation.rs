@@ -4,7 +4,9 @@ use uuid::Uuid;
 
 use crate::{
     entity::comments,
+    entity::posts::Entity as Posts,
     error::{AppError, Result},
+    handlers::communities::query::Query as CommunityQuery,
     logger::{action, log, target},
     state::AppState,
 };
@@ -88,6 +90,25 @@ impl Mutation {
             .await?
             .ok_or(AppError::NotFound)?;
 
+        let post = Posts::find_by_id(comment.post_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let is_moderator = CommunityQuery::is_moderator(state, user_id, post.community_id).await?;
+
+        if comment.user_id != user_id && !is_admin && !is_moderator {
+            let _ = log(
+                state,
+                user_id,
+                action::ACCESS_DENIED,
+                target::COMMENT,
+                comment_id,
+            )
+            .await;
+            return Err(AppError::Forbidden);
+        }
+
         let mut active: comments::ActiveModel = comment.into();
 
         if let Some(body) = input.body {
@@ -119,6 +140,25 @@ impl Mutation {
             .one(&state.db)
             .await?
             .ok_or(AppError::NotFound)?;
+
+        let post = Posts::find_by_id(comment.post_id)
+            .one(&state.db)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let is_moderator = CommunityQuery::is_moderator(state, user_id, post.community_id).await?;
+
+        if comment.user_id != user_id && !is_admin && !is_moderator {
+            let _ = log(
+                state,
+                user_id,
+                action::ACCESS_DENIED,
+                target::COMMENT,
+                comment_id,
+            )
+            .await;
+            return Err(AppError::Forbidden);
+        }
 
         comments::Entity::delete_by_id(comment_id)
             .exec(&state.db)

@@ -47,10 +47,10 @@ async fn register(
     jar: CookieJar,
     Json(input): Json<RegisterInput>,
 ) -> Result<impl IntoResponse> {
-    let res = Mutation::register(&state, input).await?;
+    let (res, raw_refresh) = Mutation::register(&state, input).await?;
 
     let is_prod = !cfg!(debug_assertions);
-    let cookie = Cookie::build(("refresh_token", res.refresh_token))
+    let cookie = Cookie::build(("refresh_token", raw_refresh))
         .http_only(true)
         .secure(is_prod)
         .same_site(if is_prod {
@@ -78,11 +78,11 @@ async fn login(
     jar: CookieJar,
     Json(input): Json<LoginInput>,
 ) -> Result<impl IntoResponse> {
-    let res = Mutation::login(&state, input).await?;
+    let (res, raw_refresh) = Mutation::login(&state, input).await?;
 
     let is_prod = !cfg!(debug_assertions);
 
-    let cookie = Cookie::build(("refresh_token", res.refresh_token))
+    let cookie = Cookie::build(("refresh_token", raw_refresh))
         .http_only(true)
         .secure(is_prod)
         .same_site(if is_prod {
@@ -105,15 +105,32 @@ async fn login(
     ))
 }
 
-async fn refresh(State(state): State<AppState>, jar: CookieJar) -> Result<impl IntoResponse> {
+async fn refresh(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(body): Json<serde_json::Value>,
+) -> Result<impl IntoResponse> {
     let refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
         .ok_or(AppError::Unauthorized)?;
-    let res = Mutation::refresh(&state, RefreshInput { refresh_token }).await?;
+
+    let refresh_token_id = body["refresh_token_id"]
+        .as_str()
+        .ok_or(AppError::BadRequest("refresh_token_id required".into()))?
+        .to_string();
+
+    let (res, raw_refresh) = Mutation::refresh(
+        &state,
+        RefreshInput {
+            refresh_token,
+            refresh_token_id,
+        },
+    )
+    .await?;
 
     let is_prod = !cfg!(debug_assertions);
-    let cookie = Cookie::build(("refresh_token", res.refresh_token))
+    let cookie = Cookie::build(("refresh_token", raw_refresh))
         .http_only(true)
         .secure(is_prod)
         .same_site(if is_prod {
@@ -129,6 +146,7 @@ async fn refresh(State(state): State<AppState>, jar: CookieJar) -> Result<impl I
         jar.add(cookie),
         Json(json!({
             "access_token": res.access_token,
+            "refresh_token_id": res.refresh_token_id,
             "role": res.role
         })),
     ))
@@ -138,12 +156,27 @@ async fn logout(
     State(state): State<AppState>,
     auth: AuthUser,
     jar: CookieJar,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse> {
     let refresh_token = jar
         .get("refresh_token")
         .map(|c| c.value().to_string())
         .ok_or(AppError::Unauthorized)?;
-    Mutation::logout(&state, auth.id, RefreshInput { refresh_token }).await?;
+
+    let refresh_token_id = body["refresh_token_id"]
+        .as_str()
+        .ok_or(AppError::BadRequest("refresh_token_id required".into()))?
+        .to_string();
+
+    Mutation::logout(
+        &state,
+        auth.id,
+        RefreshInput {
+            refresh_token,
+            refresh_token_id,
+        },
+    )
+    .await?;
 
     let is_prod = !cfg!(debug_assertions);
     let cookie = Cookie::build(("refresh_token", "\0"))
