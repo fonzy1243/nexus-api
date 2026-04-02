@@ -79,7 +79,7 @@ pub struct CommentSummary {
 pub struct CommentWithReplies {
     #[serde(flatten)]
     pub comment: CommentSummary,
-    pub replies: Vec<CommentSummary>,
+    pub replies: Vec<CommentWithReplies>,
 }
 
 fn post_vote_expr() -> SimpleExpr {
@@ -175,76 +175,28 @@ impl Query {
         post_id: Uuid,
         params: ListParams,
     ) -> Result<Vec<CommentWithReplies>> {
-        let (offset, limit) = params.offset_and_limit();
-        let sort_by = params.sort_by.unwrap_or_default();
-        let sort_order = params.sort_order.unwrap_or_default();
-
-        let top_level_select = Comments::find()
+        let all_rows = Comments::find()
             .filter(comments::Column::PostId.eq(post_id))
-            .filter(comments::Column::ParentId.is_null())
-            .find_also_related(Users);
-
-        let top_level_select = match (sort_by, sort_order) {
-            (SortBy::CreatedAt, SortOrder::Asc) => {
-                top_level_select.order_by_asc(comments::Column::CreatedAt)
-            }
-            (SortBy::CreatedAt, SortOrder::Desc) => {
-                top_level_select.order_by_asc(comments::Column::CreatedAt)
-            }
-            (SortBy::VoteCount, SortOrder::Asc) => {
-                top_level_select.order_by(comment_vote_expr(), Order::Asc)
-            }
-            (SortBy::VoteCount, SortOrder::Desc) => {
-                top_level_select.order_by(comment_vote_expr(), Order::Desc)
-            }
-        };
-
-        let top_level_rows = top_level_select
-            .offset(offset)
-            .limit(limit)
-            .all(&state.db)
-            .await?;
-
-        let top_level: Vec<CommentSummary> = top_level_rows
-            .into_iter()
-            .filter_map(|(c, u)| map_comment(c, u))
-            .collect();
-
-        if top_level.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let parent_ids: Vec<Uuid> = top_level.iter().map(|c| c.id).collect();
-
-        let reply_rows = Comments::find()
-            .filter(comments::Column::PostId.eq(post_id))
-            .filter(comments::Column::ParentId.is_in(parent_ids))
             .find_also_related(Users)
             .order_by_asc(comments::Column::CreatedAt)
             .all(&state.db)
             .await?;
 
-        let replies: Vec<CommentSummary> = reply_rows
+        let all_comments: Vec<CommentSummary> = all_rows
             .into_iter()
             .filter_map(|(c, u)| map_comment(c, u))
             .collect();
 
-        let result = top_level
-            .into_iter()
-            .map(|comment| {
-                let comment_id = comment.id;
-                let my_replies = replies
-                    .iter()
-                    .filter(|r| r.parent_id == Some(comment_id))
-                    .cloned()
-                    .collect();
-                CommentWithReplies {
-                    comment,
-                    replies: my_replies,
-                }
-            })
-            .collect();
+        fn build_tree(parent_id: Option<Uuid>, all: &[CommentSummary]) -> Vec<CommentWithReplies> {
+            all.iter()
+                .filter(|c| c.parent_id == parent_id)
+                .map(|c| CommentWithReplies {
+                    replies: build_tree(Some(c.id), all),
+                    comment: c.clone(),
+                })
+                .collect()
+        }
 
-        Ok(result)
+        Ok(build_tree(None, &all_comments))
     }
 }
