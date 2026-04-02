@@ -66,6 +66,7 @@ async fn register(
         jar.add(cookie),
         Json(json!({
             "access_token": res.access_token,
+            "refresh_token_id": res.refresh_token_id,
             "user_id": res.user_id,
             "username": res.username,
             "role": res.role
@@ -98,6 +99,7 @@ async fn login(
         jar.add(cookie),
         Json(json!({
             "access_token": res.access_token,
+            "refresh_token_id": res.refresh_token_id,
             "user_id": res.user_id,
             "username": res.username,
             "role": res.role
