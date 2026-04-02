@@ -37,10 +37,14 @@ pub fn create_token(user_id: Uuid, secret: &str, version: i32) -> Result<String>
 }
 
 // Generate refresh token
-pub fn create_refresh_token() -> Result<(String, String)> {
+pub fn create_refresh_token() -> Result<(String, String, String)> {
     let mut bytes = [0u8; 64];
     OsRng.fill_bytes(&mut bytes);
     let raw = BASE64_URL_SAFE_NO_PAD.encode(bytes);
+
+    let mut id_bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut id_bytes);
+    let token_id = BASE64_URL_SAFE_NO_PAD.encode(id_bytes);
 
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
@@ -48,7 +52,7 @@ pub fn create_refresh_token() -> Result<(String, String)> {
         .map_err(|_| AppError::BadRequest("Failed to hash refresh token".into()))?
         .to_string();
 
-    Ok((raw, hash))
+    Ok((token_id, raw, hash))
 }
 
 pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
