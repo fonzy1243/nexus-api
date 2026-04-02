@@ -49,11 +49,6 @@ impl Mutation {
                     "Parent comment does not belong to this post".into(),
                 ));
             }
-
-            // Prevent deep nesting: only allow one level of replies
-            if parent.parent_id.is_some() {
-                return Err(AppError::BadRequest("Cannot reply to a reply".into()));
-            }
         }
 
         let id = Uuid::new_v4();
