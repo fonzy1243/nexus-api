@@ -2,7 +2,7 @@ use crate::{
     entity::{
         comments::{self, Entity as Comments},
         posts::{self, Entity as Posts},
-        users::{self, Entity as Users},
+        users::{self, Entity as Users, UserRole},
     },
     error::{AppError, Result},
     state::AppState,
@@ -32,6 +32,7 @@ pub struct PostSummary {
 pub struct UserSummary {
     pub id: Uuid,
     pub username: String,
+    pub role: UserRole,
     pub created_at: String,
 }
 
@@ -48,6 +49,7 @@ impl Query {
         Ok(UserSummary {
             id: user.id,
             username: user.username,
+            role: user.role,
             created_at: user.created_at.to_string(),
         })
     }
@@ -62,6 +64,7 @@ impl Query {
         Ok(UserSummary {
             id: user.id,
             username: user.username,
+            role: user.role,
             created_at: user.created_at.to_string(),
         })
     }
