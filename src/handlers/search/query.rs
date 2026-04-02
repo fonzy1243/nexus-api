@@ -50,7 +50,10 @@ impl Query {
         let limit = Ord::min(params.limit.unwrap_or(20), 50);
 
         if q.is_empty() {
-            return Ok(SearchResults { posts: vec![], users: vec![] });
+            return Ok(SearchResults {
+                posts: vec![],
+                users: vec![],
+            });
         }
 
         // Search posts: match title or body (case-insensitive via LIKE)
@@ -59,8 +62,8 @@ impl Query {
         let post_rows = Posts::find()
             .filter(
                 sea_orm::Condition::any()
-                    .add(posts::Column::Title.contains(&q))
-                    .add(posts::Column::Body.contains(&q)),
+                    .add(posts::Column::Title.ilike(&like_pattern))
+                    .add(posts::Column::Body.ilike(&like_pattern)),
             )
             .order_by_desc(posts::Column::CreatedAt)
             .find_also_related(Users)
@@ -87,7 +90,7 @@ impl Query {
 
         // Search users: match username
         let user_rows = Users::find()
-            .filter(users::Column::Username.contains(&q))
+            .filter(users::Column::Username.ilike(&like_pattern))
             .order_by_asc(users::Column::Username)
             .limit(limit)
             .all(&state.db)
@@ -101,9 +104,6 @@ impl Query {
                 created_at: u.created_at.to_string(),
             })
             .collect();
-
-        // suppress unused variable warning for like_pattern (used via contains above)
-        let _ = like_pattern;
 
         Ok(SearchResults { posts, users })
     }
