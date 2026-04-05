@@ -102,7 +102,8 @@ async fn login(
             "refresh_token_id": res.refresh_token_id,
             "user_id": res.user_id,
             "username": res.username,
-            "role": res.role
+            "role": res.role,
+            "last_login_at": res.last_login_at
         })),
     ))
 }

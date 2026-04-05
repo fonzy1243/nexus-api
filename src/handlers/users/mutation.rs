@@ -208,6 +208,7 @@ impl Mutation {
             .map_err(|_| AppError::Unauthorized("Error occured".into()))?;
 
         let mut active: users::ActiveModel = user.clone().into();
+        active.last_login_at = Set(Some(Utc::now()));
 
         if Argon2::default()
             .verify_password(input.password.as_bytes(), &parsed_hash)
@@ -237,7 +238,6 @@ impl Mutation {
 
         active.failed_login_attempts = Set(0);
         active.locked_until = Set(None);
-        active.last_login_at = Set(Some(Utc::now()));
         active.update(&state.db).await?;
 
         let _ = log(state, user.id, action::LOGIN_SUCCESS, target::USER, user.id).await;
